@@ -1,5 +1,9 @@
 from __future__ import annotations
-
+from physics.deposition import build_energy_deposition_profile
+from physics.deposition import (
+    energy_deposited_between_samples,
+    energy_deposition_per_altitude,
+)
 import math
 from dataclasses import dataclass
 
@@ -46,7 +50,7 @@ class SimulationResult:
     events: list[EventRecord]
     total_drag_energy_J: float
     fragment_trajectories: tuple[FragmentTrajectory, ...] = ()
-
+    energy_deposition_profile: tuple[dict, ...] = ()
 
 def gravity_acceleration(altitude_m: float) -> float:
     """Return gravitational acceleration at altitude."""
@@ -504,9 +508,14 @@ def simulate(
             )
         )
 
+    energy_deposition_profile = build_energy_deposition_profile(
+        samples
+    )
+
     return SimulationResult(
         samples=samples,
         events=events,
         total_drag_energy_J=total_drag_energy_J,
         fragment_trajectories=fragment_trajectories,
+        energy_deposition_profile=energy_deposition_profile,
     )

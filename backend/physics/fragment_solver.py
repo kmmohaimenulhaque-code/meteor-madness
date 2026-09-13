@@ -6,12 +6,13 @@ from physics.consequences import (
     calculate_impact_consequences,
 )
 
-
+from physics.deposition import build_energy_deposition_profile
 from physics.ablation import ablation_mass_derivative
 from physics.atmosphere import state as atmosphere_state
 from physics.drag import (
     drag_acceleration,
     drag_force,
+    drag_power,
 )
 from physics.energy import kinetic_energy
 from physics.fragmentation import Fragment
@@ -40,6 +41,7 @@ class FragmentSample:
     velocity_m_s: float
     mass_kg: float
     kinetic_energy_J: float
+    drag_power_W: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,7 @@ class FragmentTrajectory:
     samples: tuple[FragmentSample, ...]
     outcome: FragmentOutcome
     consequences: ImpactConsequences
+    energy_deposition_profile: tuple[dict, ...] = ()
 
 def fragment_kinetic_energy(
     mass_kg: float,
@@ -274,6 +277,39 @@ def _rk4_step(
     )
 
 
+def _fragment_drag_power(
+    state: FragmentState,
+    asteroid: AsteroidParameters,
+) -> float:
+    """Return aerodynamic drag power for a fragment."""
+
+    atmosphere = atmosphere_state(
+        max(state.altitude_m, 0.0)
+    )
+
+    radius = equivalent_radius_from_mass(
+        mass_kg=state.mass_kg,
+        density_kg_m3=asteroid.bulk_density_kg_m3,
+    )
+
+    area = projected_area(
+        equivalent_radius_m=radius,
+        shape_factor=asteroid.shape_factor,
+    )
+
+    force = drag_force(
+        density_kg_m3=atmosphere.density_kg_m3,
+        velocity_m_s=state.velocity_m_s,
+        projected_area_m2=area,
+        drag_coefficient=asteroid.drag_coefficient,
+    )
+
+    return drag_power(
+        drag_force_N=force,
+        velocity_m_s=state.velocity_m_s,
+    )
+
+
 def simulate_fragment(
     fragment: FragmentState,
     asteroid: AsteroidParameters,
@@ -321,9 +357,12 @@ def simulate_fragment(
                     state.mass_kg,
                     state.velocity_m_s,
                 ),
+                drag_power_W=_fragment_drag_power(
+                    state=state,
+                    asteroid=asteroid,
+                ),
             )
         )
-
         if state.altitude_m <= 0.0:
             state = FragmentState(
                 altitude_m=0.0,
@@ -384,14 +423,20 @@ def simulate_fragment(
             state.velocity_m_s,
         ),
     )
+
     consequences = calculate_impact_consequences(
         outcome=final_outcome.outcome,
         mass_kg=final_outcome.mass_kg,
         velocity_m_s=final_outcome.velocity_m_s,
     )
 
+    energy_deposition_profile = build_energy_deposition_profile(
+    samples
+    )
+
     return FragmentTrajectory(
         samples=tuple(samples),
         outcome=final_outcome,
         consequences=consequences,
+        energy_deposition_profile=energy_deposition_profile,
     )

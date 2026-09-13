@@ -140,7 +140,8 @@ class SimulationSample:
     dynamic_pressure_Pa: float
 
     mass_loss_rate_kg_s: float
-
+    energy_deposition_J: float = 0.0
+    energy_deposition_per_meter_J_m: float = 0.0
 
 @dataclass(frozen=True)
 class EventRecord:

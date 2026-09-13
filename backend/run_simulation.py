@@ -62,3 +62,13 @@ for index, trajectory in enumerate(result.fragment_trajectories, start=1):
     print(f"  Velocity: {outcome.velocity_m_s:.3f} m/s")
     print(f"  Mass:     {outcome.mass_kg:.3f} kg")
     print(f"  Energy:   {outcome.kinetic_energy_J:.3e} J")
+
+    print()
+    print(f"Deposition samples: {len(result.energy_deposition_profile)}")
+
+for sample in result.energy_deposition_profile[:10]:
+    print(
+        f"  Altitude: {sample['altitude_m']:.1f} m"
+        f" | Deposited: {sample['energy_deposited_J']:.3e} J"
+        f" | Per metre: {sample['energy_deposition_per_meter_J_m']:.3e} J/m"
+    )
