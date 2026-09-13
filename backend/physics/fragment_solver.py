@@ -1,7 +1,11 @@
 from __future__ import annotations
-
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
+from physics.consequences import (
+    ImpactConsequences,
+    calculate_impact_consequences,
+)
+
 
 from physics.ablation import ablation_mass_derivative
 from physics.atmosphere import state as atmosphere_state
@@ -55,7 +59,7 @@ class FragmentTrajectory:
 
     samples: tuple[FragmentSample, ...]
     outcome: FragmentOutcome
-
+    consequences: ImpactConsequences
 
 def fragment_kinetic_energy(
     mass_kg: float,
@@ -380,8 +384,14 @@ def simulate_fragment(
             state.velocity_m_s,
         ),
     )
+    consequences = calculate_impact_consequences(
+        outcome=final_outcome.outcome,
+        mass_kg=final_outcome.mass_kg,
+        velocity_m_s=final_outcome.velocity_m_s,
+    )
 
     return FragmentTrajectory(
         samples=tuple(samples),
         outcome=final_outcome,
+        consequences=consequences,
     )
