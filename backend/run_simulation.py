@@ -49,4 +49,16 @@ for event in result.events:
     print(f"  Velocity: {event.velocity_m_s:.3f} m/s")
     print(f"  Mass:     {event.mass_kg:.3f} kg")
     print(f"  Energy:   {event.energy_J:.3e} J")
+    print()
+    print(f"Fragment trajectories: {len(result.fragment_trajectories)}")
 
+for index, trajectory in enumerate(result.fragment_trajectories, start=1):
+    outcome = trajectory.outcome
+
+    print()
+    print(f"FRAGMENT {index}")
+    print(f"  Outcome:  {outcome.outcome}")
+    print(f"  Altitude: {outcome.altitude_m:.3f} m")
+    print(f"  Velocity: {outcome.velocity_m_s:.3f} m/s")
+    print(f"  Mass:     {outcome.mass_kg:.3f} kg")
+    print(f"  Energy:   {outcome.kinetic_energy_J:.3e} J")

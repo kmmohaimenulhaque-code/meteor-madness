@@ -13,6 +13,12 @@ from physics.drag import (
 )
 from physics.energy import kinetic_energy
 from physics.fragmentation import fragmentation_triggered
+from physics.fragmentation import create_fragments
+from physics.fragment_solver import (
+    FragmentTrajectory,
+    initial_fragment_states,
+    simulate_fragment,
+)
 from physics.geometry import (
     equivalent_radius_from_mass,
     initial_mass,
@@ -39,6 +45,7 @@ class SimulationResult:
     samples: list[SimulationSample]
     events: list[EventRecord]
     total_drag_energy_J: float
+    fragment_trajectories: tuple[FragmentTrajectory, ...] = ()
 
 
 def gravity_acceleration(altitude_m: float) -> float:
@@ -336,7 +343,7 @@ def simulate(
 
     samples: list[SimulationSample] = []
     events: list[EventRecord] = []
-
+    fragment_trajectories: tuple[FragmentTrajectory, ...] = ()
     total_drag_energy_J = 0.0
     time_s = 0.0
 
@@ -401,6 +408,26 @@ def simulate(
             material_strength_Pa=asteroid.material_strength_Pa,
         ):
             if config.stop_on_fragmentation:
+                fragments = create_fragments(
+                    mass_kg=current_state.mass_kg,
+                    velocity_m_s=current_state.velocity_m_s,
+                )
+
+                fragment_states = initial_fragment_states(
+                    fragments=fragments,
+                    altitude_m=current_state.altitude_m,
+                )
+
+                fragment_trajectories = tuple(
+                    simulate_fragment(
+                        fragment=fragment_state,
+                        asteroid=asteroid,
+                        config=config,
+                        entry_angle_rad=entry.entry_angle_rad,
+                    )
+                    for fragment_state in fragment_states
+                )
+
                 events.append(
                     EventRecord(
                         type="fragmentation",
@@ -481,4 +508,5 @@ def simulate(
         samples=samples,
         events=events,
         total_drag_energy_J=total_drag_energy_J,
+        fragment_trajectories=fragment_trajectories,
     )

@@ -130,7 +130,7 @@ def _fragment_derivative(
 ) -> FragmentState:
     """Return d(state)/dt for one fragment."""
 
-    atmosphere = atmosphere_state(state.altitude_m)
+    atmosphere = atmosphere_state(max(state.altitude_m, 0.0))
 
     radius = equivalent_radius_from_mass(
         mass_kg=state.mass_kg,
