@@ -79,6 +79,35 @@ class EntryConditions:
 
 
 @dataclass(frozen=True)
+class ImpactScenario:
+    """Geographic scenario for the atmospheric-entry trajectory.
+
+    V0.2 treats these values as scenario inputs. They are not inferred
+    from NASA NeoWs asteroid data.
+    """
+
+    latitude_deg: float
+    longitude_deg: float
+    entry_azimuth_deg: float
+
+    def validate(self) -> None:
+        if not -90.0 <= self.latitude_deg <= 90.0:
+            raise ValueError(
+                "latitude_deg must be between -90 and 90"
+            )
+
+        if not -180.0 <= self.longitude_deg <= 180.0:
+            raise ValueError(
+                "longitude_deg must be between -180 and 180"
+            )
+
+        if not 0.0 <= self.entry_azimuth_deg < 360.0:
+            raise ValueError(
+                "entry_azimuth_deg must be between 0 and 360"
+            )
+
+
+@dataclass(frozen=True)
 class SimulationConfig:
     """Numerical settings for a simulation."""
 
@@ -142,6 +171,7 @@ class SimulationSample:
     mass_loss_rate_kg_s: float
     energy_deposition_J: float = 0.0
     energy_deposition_per_meter_J_m: float = 0.0
+
 
 @dataclass(frozen=True)
 class EventRecord:
