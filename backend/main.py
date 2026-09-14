@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import os
+from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -9,7 +10,6 @@ from pydantic import BaseModel, Field
 
 from nasa_client import fetch_neos
 
-from physics.airburst import AirburstClassification
 from physics.parameter_resolver import resolve_neo_to_physics
 from physics.models import (
     AsteroidParameters,
@@ -29,6 +29,11 @@ app = FastAPI(
 )
 
 
+# ============================================================
+# REQUEST / RESPONSE MODELS
+# ============================================================
+
+
 class SimulationRequest(BaseModel):
     diameter_m: float = Field(gt=0)
     bulk_density_kg_m3: float = Field(gt=0)
@@ -41,16 +46,22 @@ class SimulationRequest(BaseModel):
     material_strength_Pa: float = Field(gt=0)
     shape_factor: float = Field(gt=0)
 
-    initial_altitude_m: float = Field(default=80_000.0, ge=0)
-    timestep_s: float = Field(default=0.01, gt=0)
-    max_time_s: float = Field(default=1000.0, gt=0)
+    initial_altitude_m: float = Field(
+        default=80_000.0,
+        ge=0,
+    )
 
-    # ---------------------------------------------------------
-    # V0.2 geographic scenario
-    #
-    # These are scenario inputs, not values derived from NASA.
-    # ---------------------------------------------------------
+    timestep_s: float = Field(
+        default=0.01,
+        gt=0,
+    )
 
+    max_time_s: float = Field(
+        default=1000.0,
+        gt=0,
+    )
+
+    # Geographic scenario inputs.
     latitude_deg: float = Field(
         default=0.0,
         ge=-90.0,
@@ -94,10 +105,44 @@ class SimulationResponse(BaseModel):
     ground_impact_energy_J: float | None = None
     atmospheric_fraction: float | None = None
 
-    # V0.2 geographic scenario.
-    trajectory: dict
+    trajectory: dict[str, Any]
 
-    profile: list[dict]
+    # Public atmospheric-entry profile.
+    profile: list[dict[str, Any]]
+
+
+# ============================================================
+# BASIC HELPERS
+# ============================================================
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    """
+    Convert a numeric value safely to float.
+
+    This prevents one malformed optional physics value from
+    taking down the entire API response.
+    """
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _get_optional_attribute(
+    obj: Any,
+    name: str,
+    default: Any = None,
+) -> Any:
+    """
+    Safely retrieve an optional attribute from a simulation object.
+    """
+    return getattr(obj, name, default)
+
+
+# ============================================================
+# ROOT
+# ============================================================
 
 
 @app.get("/")
@@ -107,6 +152,11 @@ def root():
         "version": "0.2.0",
         "status": "online",
     }
+
+
+# ============================================================
+# NASA NEOWS
+# ============================================================
 
 
 @app.get("/api/neos")
@@ -134,16 +184,21 @@ async def get_neos(
     }
 
 
+# ============================================================
+# GEOGRAPHIC TRAJECTORY
+# ============================================================
+
+
 def _build_trajectory(
     *,
     scenario: ImpactScenario,
     entry: EntryConditions,
-) -> dict:
+) -> dict[str, Any]:
     """
-    Build the public V0.2 geographic trajectory contract.
+    Build the public geographic trajectory contract.
 
-    Geographic coordinates are scenario inputs. They are not
-    derived from NASA NeoWs orbital data in V0.2.
+    V0.2 treats geographic coordinates as scenario inputs.
+    They are NOT inferred from NASA NeoWs orbital geometry.
     """
 
     scenario.validate()
@@ -154,9 +209,7 @@ def _build_trajectory(
         "entry_longitude_deg": scenario.longitude_deg,
         "entry_azimuth_deg": scenario.entry_azimuth_deg,
         "entry_angle_deg": math.degrees(entry.entry_angle_rad),
-
         "coordinate_source": "scenario_input",
-
         "note": (
             "Geographic coordinates are scenario inputs in V0.2 "
             "and are not derived from NASA NeoWs orbital geometry."
@@ -164,154 +217,471 @@ def _build_trajectory(
     }
 
 
+# ============================================================
+# PROFILE SERIALISATION
+# ============================================================
+
+
+def _build_profile(result: Any) -> list[dict[str, Any]]:
+    """
+    Convert SimulationResult.samples into the public profile.
+
+    IMPORTANT:
+    SimulationResult does NOT expose `profile`.
+    The solver records atmospheric-entry points in `samples`.
+    """
+
+    samples = _get_optional_attribute(result, "samples", [])
+
+    if samples is None:
+        samples = []
+
+    profile: list[dict[str, Any]] = []
+
+    for sample in samples:
+        profile.append(
+            {
+                "time_s": _safe_float(
+                    _get_optional_attribute(sample, "time_s")
+                ),
+                "altitude_m": _safe_float(
+                    _get_optional_attribute(sample, "altitude_m")
+                ),
+                "velocity_m_s": _safe_float(
+                    _get_optional_attribute(sample, "velocity_m_s")
+                ),
+                "mass_kg": _safe_float(
+                    _get_optional_attribute(sample, "mass_kg")
+                ),
+                "density_kg_m3": _safe_float(
+                    _get_optional_attribute(sample, "density_kg_m3")
+                ),
+                "temperature_K": _safe_float(
+                    _get_optional_attribute(sample, "temperature_K")
+                ),
+                "pressure_Pa": _safe_float(
+                    _get_optional_attribute(sample, "pressure_Pa")
+                ),
+                "equivalent_radius_m": _safe_float(
+                    _get_optional_attribute(
+                        sample,
+                        "equivalent_radius_m",
+                    )
+                ),
+                "projected_area_m2": _safe_float(
+                    _get_optional_attribute(
+                        sample,
+                        "projected_area_m2",
+                    )
+                ),
+                "drag_force_N": _safe_float(
+                    _get_optional_attribute(
+                        sample,
+                        "drag_force_N",
+                    )
+                ),
+                "drag_acceleration_m_s2": _safe_float(
+                    _get_optional_attribute(
+                        sample,
+                        "drag_acceleration_m_s2",
+                    )
+                ),
+                "drag_power_W": _safe_float(
+                    _get_optional_attribute(
+                        sample,
+                        "drag_power_W",
+                    )
+                ),
+                "kinetic_energy_J": _safe_float(
+                    _get_optional_attribute(
+                        sample,
+                        "kinetic_energy_J",
+                    )
+                ),
+                "dynamic_pressure_Pa": _safe_float(
+                    _get_optional_attribute(
+                        sample,
+                        "dynamic_pressure_Pa",
+                    )
+                ),
+                "mass_loss_rate_kg_s": _safe_float(
+                    _get_optional_attribute(
+                        sample,
+                        "mass_loss_rate_kg_s",
+                    )
+                ),
+                "energy_deposition_J": _safe_float(
+                    _get_optional_attribute(
+                        sample,
+                        "energy_deposition_J",
+                    )
+                ),
+                "energy_deposition_per_meter_J_m": _safe_float(
+                    _get_optional_attribute(
+                        sample,
+                        "energy_deposition_per_meter_J_m",
+                    )
+                ),
+            }
+        )
+
+    return profile
+
+
+# ============================================================
+# IMPACT / FRAGMENTATION HELPERS
+# ============================================================
+
+
+def _build_impact_summary(result: Any) -> tuple[
+    float | None,
+    float | None,
+    float | None,
+]:
+    """
+    Aggregate surviving ground-impact fragments.
+
+    Returns:
+        impact_mass_kg
+        impact_velocity_m_s
+        impact_energy_J
+    """
+
+    fragment_trajectories = _get_optional_attribute(
+        result,
+        "fragment_trajectories",
+        [],
+    )
+
+    if not fragment_trajectories:
+        return None, None, None
+
+    impact_fragments = []
+
+    for trajectory in fragment_trajectories:
+        outcome = _get_optional_attribute(
+            _get_optional_attribute(
+                trajectory,
+                "outcome",
+                None,
+            ),
+            "outcome",
+            None,
+        )
+
+        if outcome == "ground_impact":
+            impact_fragments.append(trajectory)
+
+    if not impact_fragments:
+        return None, None, None
+
+    impact_mass = 0.0
+    impact_energy = 0.0
+
+    for trajectory in impact_fragments:
+        consequences = _get_optional_attribute(
+            trajectory,
+            "consequences",
+            None,
+        )
+
+        if consequences is None:
+            continue
+
+        impact_mass += _safe_float(
+            _get_optional_attribute(
+                consequences,
+                "surviving_mass_kg",
+            )
+        )
+
+        impact_energy += _safe_float(
+            _get_optional_attribute(
+                consequences,
+                "impact_energy_J",
+            )
+        )
+
+    if impact_mass <= 0.0:
+        return None, None, None
+
+    impact_velocity = math.sqrt(
+        max(
+            0.0,
+            2.0 * impact_energy / impact_mass,
+        )
+    )
+
+    return (
+        impact_mass,
+        impact_velocity,
+        impact_energy,
+    )
+
+
+def _build_fragmentation_summary(result: Any) -> tuple[
+    bool,
+    float | None,
+]:
+    """
+    Extract the first fragmentation event.
+    """
+
+    events = _get_optional_attribute(
+        result,
+        "events",
+        [],
+    )
+
+    if not events:
+        return False, None
+
+    fragmentation_events = [
+        event
+        for event in events
+        if _get_optional_attribute(
+            event,
+            "type",
+            None,
+        ) == "fragmentation"
+    ]
+
+    if not fragmentation_events:
+        return False, None
+
+    altitude = _get_optional_attribute(
+        fragmentation_events[0],
+        "altitude_m",
+        None,
+    )
+
+    return True, (
+        _safe_float(altitude)
+        if altitude is not None
+        else None
+    )
+
+
+# ============================================================
+# PUBLIC SIMULATION RESPONSE
+# ============================================================
+
+
 def _build_simulation_response(
-    result,
+    result: Any,
     *,
     scenario: ImpactScenario,
     entry: EntryConditions,
 ) -> SimulationResponse:
     """
-    Convert the internal physics simulation result into the
-    public API response schema.
+    Convert the internal SimulationResult into the public API
+    response.
+
+    This function intentionally works with the actual solver
+    contract:
+
+        result.samples
+
+    rather than the nonexistent:
+
+        result.profile
     """
 
-    initial_mass = result.samples[0].mass_kg
-    parent_final_sample = result.samples[-1]
+    # ---------------------------------------------------------
+    # Validate result
+    # ---------------------------------------------------------
+
+    samples = _get_optional_attribute(
+        result,
+        "samples",
+        [],
+    )
+
+    if not samples:
+        raise RuntimeError(
+            "Physics solver returned no simulation samples."
+        )
+
+    # ---------------------------------------------------------
+    # Initial / final parent state
+    # ---------------------------------------------------------
+
+    initial_sample = samples[0]
+    parent_final_sample = samples[-1]
+
+    initial_mass = _safe_float(
+        _get_optional_attribute(
+            initial_sample,
+            "mass_kg",
+        )
+    )
 
     # ---------------------------------------------------------
     # Ground-impact fragment aggregation
     # ---------------------------------------------------------
 
-    impact_mass = None
-    impact_velocity = None
-    impact_energy = None
-
-    if result.fragment_trajectories:
-        impact_fragments = [
-            trajectory
-            for trajectory in result.fragment_trajectories
-            if trajectory.outcome.outcome == "ground_impact"
-        ]
-
-        if impact_fragments:
-            impact_mass = sum(
-                trajectory.consequences.surviving_mass_kg
-                for trajectory in impact_fragments
-            )
-
-            impact_energy = sum(
-                trajectory.consequences.impact_energy_J
-                for trajectory in impact_fragments
-            )
-
-            if impact_mass > 0:
-                impact_velocity = math.sqrt(
-                    2.0 * impact_energy / impact_mass
-                )
+    (
+        impact_mass,
+        impact_velocity,
+        impact_energy,
+    ) = _build_impact_summary(result)
 
     # ---------------------------------------------------------
     # Fragmentation detection
     # ---------------------------------------------------------
 
-    fragmentation_events = [
-        event
-        for event in result.events
-        if event.type == "fragmentation"
-    ]
-
-    fragmentation_detected = bool(fragmentation_events)
-
-    fragmentation_altitude = (
-        fragmentation_events[0].altitude_m
-        if fragmentation_detected
-        else None
-    )
+    (
+        fragmentation_detected,
+        fragmentation_altitude,
+    ) = _build_fragmentation_summary(result)
 
     # ---------------------------------------------------------
     # Event-energy summary
     # ---------------------------------------------------------
 
-    event_energy = result.event_energy
-    airburst = result.airburst_classification
+    event_energy = _get_optional_attribute(
+        result,
+        "event_energy",
+        None,
+    )
+
+    airburst = _get_optional_attribute(
+        result,
+        "airburst_classification",
+        None,
+    )
 
     # ---------------------------------------------------------
-    # Profile
+    # Outcome
     # ---------------------------------------------------------
 
-    profile = [
-        {
-            "altitude_m": sample.altitude_m,
-            "velocity_m_s": sample.velocity_m_s,
-            "mass_kg": sample.mass_kg,
-            "density_kg_m3": sample.density_kg_m3,
-            "temperature_K": sample.temperature_K,
-            "pressure_Pa": sample.pressure_Pa,
-            "equivalent_radius_m": sample.equivalent_radius_m,
-            "projected_area_m2": sample.projected_area_m2,
-            "drag_force_N": sample.drag_force_N,
-            "drag_acceleration_m_s2": (
-                sample.drag_acceleration_m_s2
-            ),
-            "drag_power_W": sample.drag_power_W,
-            "kinetic_energy_J": sample.kinetic_energy_J,
-            "dynamic_pressure_Pa": sample.dynamic_pressure_Pa,
-            "mass_loss_rate_kg_s": sample.mass_loss_rate_kg_s,
+    outcome = _get_optional_attribute(
+        airburst,
+        "outcome",
+        None,
+    )
 
-            # Energy-deposition data
-            "energy_deposition_J": sample.energy_deposition_J,
-            "energy_deposition_per_meter_J_m": (
-                sample.energy_deposition_per_meter_J_m
-            ),
-        }
-        for sample in result.samples
-    ]
+    if outcome is None:
+        events = _get_optional_attribute(
+            result,
+            "events",
+            [],
+        )
+
+        if events:
+            outcome = _get_optional_attribute(
+                events[-1],
+                "type",
+                "completed",
+            )
+        else:
+            outcome = "completed"
 
     # ---------------------------------------------------------
-    # Final public response
+    # Atmospheric profile
+    # ---------------------------------------------------------
+
+    profile = _build_profile(result)
+
+    # ---------------------------------------------------------
+    # Total drag energy
+    # ---------------------------------------------------------
+
+    total_drag_energy = _safe_float(
+        _get_optional_attribute(
+            result,
+            "total_drag_energy_J",
+            0.0,
+        )
+    )
+
+    # ---------------------------------------------------------
+    # Event-energy values
+    # ---------------------------------------------------------
+
+    atmospheric_drag_work = None
+    ground_impact_energy = None
+    atmospheric_fraction = None
+
+    if event_energy is not None:
+        value = _get_optional_attribute(
+            event_energy,
+            "atmospheric_drag_work_J",
+            None,
+        )
+
+        if value is not None:
+            atmospheric_drag_work = _safe_float(value)
+
+        value = _get_optional_attribute(
+            event_energy,
+            "ground_impact_energy_J",
+            None,
+        )
+
+        if value is not None:
+            ground_impact_energy = _safe_float(value)
+
+        value = _get_optional_attribute(
+            event_energy,
+            "atmospheric_fraction",
+            None,
+        )
+
+        if value is not None:
+            atmospheric_fraction = _safe_float(value)
+
+    # ---------------------------------------------------------
+    # Final response
     # ---------------------------------------------------------
 
     return SimulationResponse(
         status="completed",
 
-        outcome=(
-            airburst.outcome
-            if airburst is not None
-            else result.events[-1].type
-        ),
+        outcome=str(outcome),
 
         initial_mass_kg=initial_mass,
 
-        parent_final_mass_kg=parent_final_sample.mass_kg,
-        parent_final_altitude_m=parent_final_sample.altitude_m,
-        parent_final_velocity_m_s=parent_final_sample.velocity_m_s,
-        parent_final_energy_J=parent_final_sample.kinetic_energy_J,
+        parent_final_mass_kg=_safe_float(
+            _get_optional_attribute(
+                parent_final_sample,
+                "mass_kg",
+            )
+        ),
+
+        parent_final_altitude_m=_safe_float(
+            _get_optional_attribute(
+                parent_final_sample,
+                "altitude_m",
+            )
+        ),
+
+        parent_final_velocity_m_s=_safe_float(
+            _get_optional_attribute(
+                parent_final_sample,
+                "velocity_m_s",
+            )
+        ),
+
+        parent_final_energy_J=_safe_float(
+            _get_optional_attribute(
+                parent_final_sample,
+                "kinetic_energy_J",
+            )
+        ),
 
         impact_mass_kg=impact_mass,
         impact_velocity_m_s=impact_velocity,
         impact_energy_J=impact_energy,
 
-        total_drag_energy_J=result.total_drag_energy_J,
+        total_drag_energy_J=total_drag_energy,
 
         fragmentation_detected=fragmentation_detected,
         fragmentation_altitude_m=fragmentation_altitude,
 
-        atmospheric_drag_work_J=(
-            event_energy.atmospheric_drag_work_J
-            if event_energy is not None
-            else None
-        ),
-
-        ground_impact_energy_J=(
-            event_energy.ground_impact_energy_J
-            if event_energy is not None
-            else None
-        ),
-
-        atmospheric_fraction=(
-            event_energy.atmospheric_fraction
-            if event_energy is not None
-            else None
-        ),
+        atmospheric_drag_work_J=atmospheric_drag_work,
+        ground_impact_energy_J=ground_impact_energy,
+        atmospheric_fraction=atmospheric_fraction,
 
         trajectory=_build_trajectory(
             scenario=scenario,
@@ -322,21 +692,30 @@ def _build_simulation_response(
     )
 
 
+# ============================================================
+# DIRECT PHYSICS SIMULATION
+# ============================================================
+
+
 @app.post(
     "/api/simulation/entry",
     response_model=SimulationResponse,
 )
-def run_entry_simulation(request: SimulationRequest):
+def run_entry_simulation(
+    request: SimulationRequest,
+):
     """
-    Run a simulation directly from explicitly supplied
-    asteroid, entry, and geographic scenario parameters.
+    Run a simulation directly from explicitly supplied asteroid,
+    entry, and geographic scenario parameters.
     """
 
     asteroid = AsteroidParameters(
         diameter_m=request.diameter_m,
         bulk_density_kg_m3=request.bulk_density_kg_m3,
         drag_coefficient=request.drag_coefficient,
-        heat_transfer_coefficient=request.heat_transfer_coefficient,
+        heat_transfer_coefficient=(
+            request.heat_transfer_coefficient
+        ),
         effective_heat_of_ablation_J_kg=(
             request.effective_heat_of_ablation_J_kg
         ),
@@ -361,8 +740,10 @@ def run_entry_simulation(request: SimulationRequest):
         max_time_s=request.max_time_s,
     )
 
-    # Validate the new scenario explicitly.
+    asteroid.validate()
+    entry.validate()
     scenario.validate()
+    config.validate()
 
     result = simulate(
         asteroid=asteroid,
@@ -377,6 +758,11 @@ def run_entry_simulation(request: SimulationRequest):
     )
 
 
+# ============================================================
+# NASA ASTEROID -> PHYSICS SIMULATION
+# ============================================================
+
+
 @app.post("/api/simulation/from-neo")
 async def simulate_from_neo(
     asteroid_id: str,
@@ -386,15 +772,14 @@ async def simulate_from_neo(
 ):
     """
     Fetch a real asteroid from the current NASA NeoWs feed,
-    resolve its physical simulation parameters, and run the
-    atmospheric-entry simulation.
+    resolve physical parameters, and run the atmospheric-entry
+    simulation.
 
-    Geographic values are V0.2 scenario inputs. They are not
-    derived from NASA NeoWs orbital geometry.
+    Geographic values are scenario inputs in V0.2.
     """
 
     # ---------------------------------------------------------
-    # Validate geographic scenario
+    # Geographic scenario
     # ---------------------------------------------------------
 
     scenario = ImpactScenario(
@@ -405,6 +790,10 @@ async def simulate_from_neo(
 
     scenario.validate()
 
+    # ---------------------------------------------------------
+    # NASA API key
+    # ---------------------------------------------------------
+
     api_key = os.getenv("NASA_API_KEY")
 
     if not api_key:
@@ -414,16 +803,23 @@ async def simulate_from_neo(
         }
 
     # ---------------------------------------------------------
-    # Fetch current NASA NeoWs feed
+    # Fetch current NASA feed
     # ---------------------------------------------------------
 
-    data = await fetch_neos(api_key=api_key)
+    data = await fetch_neos(
+        api_key=api_key,
+    )
+
+    asteroids = data.get(
+        "asteroids",
+        [],
+    )
 
     neo = next(
         (
             asteroid
-            for asteroid in data["asteroids"]
-            if str(asteroid["id"]) == asteroid_id
+            for asteroid in asteroids
+            if str(asteroid.get("id")) == str(asteroid_id)
         ),
         None,
     )
@@ -438,13 +834,13 @@ async def simulate_from_neo(
         }
 
     # ---------------------------------------------------------
-    # Resolve NASA data into physics assumptions
+    # Resolve NASA asteroid into physics parameters
     # ---------------------------------------------------------
 
     resolved = resolve_neo_to_physics(neo)
 
     # ---------------------------------------------------------
-    # Run physics simulation
+    # Run atmospheric-entry simulation
     # ---------------------------------------------------------
 
     result = simulate(
@@ -453,6 +849,10 @@ async def simulate_from_neo(
         config=SimulationConfig(),
     )
 
+    # ---------------------------------------------------------
+    # Convert solver result into API contract
+    # ---------------------------------------------------------
+
     simulation_response = _build_simulation_response(
         result,
         scenario=scenario,
@@ -460,7 +860,7 @@ async def simulate_from_neo(
     )
 
     # ---------------------------------------------------------
-    # Return NASA metadata + assumptions + simulation
+    # Return complete payload
     # ---------------------------------------------------------
 
     return {

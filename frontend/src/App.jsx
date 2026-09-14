@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   LineChart,
   Line,
@@ -35,24 +35,47 @@ function App() {
   // ---------------------------------------------------------
 
   useEffect(() => {
-    fetch("/api/neos")
-      .then((response) => {
+    let cancelled = false;
+
+    async function loadAsteroids() {
+      try {
+        const response = await fetch("/api/neos");
+
         if (!response.ok) {
           throw new Error("Failed to fetch NASA asteroid data");
         }
 
-        return response.json();
-      })
-      .then((data) => {
-        setAsteroids(data.asteroids ?? []);
+        const data = await response.json();
 
-        if (data.asteroids?.length > 0) {
-          setSelectedId(String(data.asteroids[0].id));
+        if (cancelled) {
+          return;
         }
-      })
-      .catch((err) => {
-        setError(err.message);
-      });
+
+        const objects = Array.isArray(data.asteroids)
+          ? data.asteroids
+          : [];
+
+        setAsteroids(objects);
+
+        if (objects.length > 0) {
+          setSelectedId(String(objects[0].id));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to fetch NASA asteroid data"
+          );
+        }
+      }
+    }
+
+    loadAsteroids();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // ---------------------------------------------------------
@@ -63,35 +86,140 @@ function App() {
     (asteroid) => String(asteroid.id) === selectedId
   );
 
-  const simulationData = simulation?.simulation;
-  const trajectory = simulation?.trajectory;
+  const simulationData = simulation?.simulation ?? null;
+  const trajectory = simulation?.trajectory ?? null;
 
   const fragmentationAltitude =
     simulationData?.fragmentation_altitude_m != null
       ? simulationData.fragmentation_altitude_m / 1000
       : null;
 
-  const profile =
-    simulationData?.profile?.map((point) => ({
-      altitude_km: point.altitude_m / 1000,
-      velocity_km_s: point.velocity_m_s / 1000,
-      mass_tonnes: point.mass_kg / 1000,
-      dynamic_pressure_MPa: point.dynamic_pressure_Pa / 1e6,
+  // ---------------------------------------------------------
+  // Simulation profile
+  // ---------------------------------------------------------
+
+  const profile = useMemo(() => {
+    if (!Array.isArray(simulationData?.profile)) {
+      return [];
+    }
+
+    return simulationData.profile.map((point) => ({
+      time_s: point.time_s ?? 0,
+      altitude_km: (point.altitude_m ?? 0) / 1000,
+      velocity_km_s: (point.velocity_m_s ?? 0) / 1000,
+      mass_tonnes: (point.mass_kg ?? 0) / 1000,
+      dynamic_pressure_MPa:
+        (point.dynamic_pressure_Pa ?? 0) / 1e6,
       energy_deposition_GJ_m:
         (point.energy_deposition_per_meter_J_m ?? 0) / 1e9,
-    })) ?? [];
+      density_kg_m3: point.density_kg_m3 ?? 0,
+      drag_force_N: point.drag_force_N ?? 0,
+      drag_power_W: point.drag_power_W ?? 0,
+    }));
+  }, [simulationData]);
 
-  const atmosphericFraction =
-    simulationData?.atmospheric_fraction != null
-      ? simulationData.atmospheric_fraction * 100
+  const animationPoint =
+    profile.length > 0
+      ? profile[Math.min(animationIndex, profile.length - 1)]
       : null;
 
   // ---------------------------------------------------------
-  // Animation
+  // Actual simulation values
+  // ---------------------------------------------------------
+
+  const initialAltitudeKm =
+    profile.length > 0 ? profile[0].altitude_km : 80;
+
+  const finalAltitudeKm =
+    profile.length > 0
+      ? profile[profile.length - 1].altitude_km
+      : 0;
+
+  const altitudeRangeKm = Math.max(
+    initialAltitudeKm - finalAltitudeKm,
+    1
+  );
+
+  const animatedAltitude = animationPoint?.altitude_km ?? 0;
+
+  const animatedVelocity =
+    animationPoint?.velocity_km_s ?? 0;
+
+  const animatedMass =
+    animationPoint?.mass_tonnes ?? 0;
+
+  const animatedPressure =
+    animationPoint?.dynamic_pressure_MPa ?? 0;
+
+  const animatedDensity =
+    animationPoint?.density_kg_m3 ?? 0;
+
+  const animatedDragPower =
+    animationPoint?.drag_power_W ?? 0;
+
+  // ---------------------------------------------------------
+  // Visual progress
+  // ---------------------------------------------------------
+
+  const animatedProgress = Math.min(
+    Math.max(
+      (initialAltitudeKm - animatedAltitude) /
+        altitudeRangeKm,
+      0
+    ),
+    1
+  );
+
+  const initialMassTonnes =
+    profile.length > 0 ? profile[0].mass_tonnes : 0;
+
+  const massRatio =
+    initialMassTonnes > 0
+      ? Math.min(
+          Math.max(animatedMass / initialMassTonnes, 0),
+          1
+        )
+      : 1;
+
+  // Meteor gets smaller as mass is lost.
+  const meteorScale = 0.55 + massRatio * 0.45;
+
+  // ---------------------------------------------------------
+  // Atmospheric intensity
+  // ---------------------------------------------------------
+
+  const pressureIntensity = Math.min(
+    Math.log10(1 + Math.max(animatedPressure, 0)) / 2,
+    1
+  );
+
+  const densityIntensity = Math.min(
+    Math.log10(1 + Math.max(animatedDensity, 0)) / 2,
+    1
+  );
+
+  const dragIntensity = Math.min(
+    Math.log10(1 + Math.max(animatedDragPower, 0)) / 16,
+    1
+  );
+
+  const meteorIntensity = Math.min(
+    pressureIntensity * 0.5 +
+      densityIntensity * 0.25 +
+      dragIntensity * 0.25,
+    1
+  );
+
+  const meteorOpacity = 0.72 + meteorIntensity * 0.28;
+
+  const trailScale = 0.8 + meteorIntensity * 1.8;
+
+  // ---------------------------------------------------------
+  // Atmospheric entry animation
   // ---------------------------------------------------------
 
   useEffect(() => {
-    if (!simulationData?.profile?.length) {
+    if (profile.length < 2) {
       setAnimationRunning(false);
       setAnimationIndex(0);
       return undefined;
@@ -100,57 +228,90 @@ function App() {
     setAnimationIndex(0);
     setAnimationRunning(true);
 
-    const duration = 8000;
+    const firstTime = profile[0].time_s ?? 0;
+
+    const lastTime =
+      profile[profile.length - 1].time_s ?? firstTime;
+
+    const simulationDuration = Math.max(
+      lastTime - firstTime,
+      0.01
+    );
+
+    // Eight seconds keeps the animation presentation-friendly
+    // while preserving the relative timing between samples.
+    const animationDuration = 8000;
+
     const startTime = performance.now();
 
-    let frame;
+    let frameId;
 
     function animate(now) {
       const elapsed = now - startTime;
-      const progress = Math.min(elapsed / duration, 1);
 
-      const index = Math.floor(
-        progress * (simulationData.profile.length - 1)
+      const progress = Math.min(
+        elapsed / animationDuration,
+        1
       );
+
+      const targetTime =
+        firstTime +
+        progress * simulationDuration;
+
+      let index = 0;
+
+      for (let i = 0; i < profile.length; i += 1) {
+        if (profile[i].time_s <= targetTime) {
+          index = i;
+        } else {
+          break;
+        }
+      }
 
       setAnimationIndex(index);
 
       if (progress < 1) {
-        frame = requestAnimationFrame(animate);
+        frameId = requestAnimationFrame(animate);
       } else {
         setAnimationRunning(false);
       }
     }
 
-    frame = requestAnimationFrame(animate);
+    frameId = requestAnimationFrame(animate);
 
     return () => {
-      if (frame) {
-        cancelAnimationFrame(frame);
+      if (frameId) {
+        cancelAnimationFrame(frameId);
       }
     };
-  }, [simulationData]);
+  }, [profile]);
 
-  const animatedPoint =
-    profile.length > 0
-      ? profile[Math.min(animationIndex, profile.length - 1)]
-      : null;
+  // ---------------------------------------------------------
+  // Atmospheric event state
+  // ---------------------------------------------------------
 
-  const animatedProgress =
-    profile.length > 1
-      ? animationIndex / (profile.length - 1)
-      : 0;
+  const fragmentationDetected =
+    Boolean(simulationData?.fragmentation_detected) &&
+    fragmentationAltitude != null;
 
-  const animatedAltitude = animatedPoint?.altitude_km ?? 0;
-  const animatedVelocity = animatedPoint?.velocity_km_s ?? 0;
-  const animatedMass = animatedPoint?.mass_tonnes ?? 0;
+  const fragmentationReached =
+    fragmentationDetected &&
+    animatedAltitude <= fragmentationAltitude;
+
+  const animationStatus = fragmentationReached
+    ? "💥 FRAGMENTATION DETECTED"
+    : animationRunning
+      ? "☄️ ATMOSPHERIC ENTRY IN PROGRESS"
+      : "✓ SIMULATION COMPLETE";
 
   // ---------------------------------------------------------
   // Run simulation
   // ---------------------------------------------------------
 
   async function runSimulation() {
-    if (!selectedId) return;
+    if (!selectedId) {
+      return;
+    }
 
     setLoading(true);
     setError("");
@@ -173,15 +334,27 @@ function App() {
         }
       );
 
-      const data = await response.json();
+      let data;
+
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error("Backend returned invalid JSON");
+      }
 
       if (!response.ok || data.status === "error") {
-        throw new Error(data.message || "Simulation failed");
+        throw new Error(
+          data.message || "Simulation failed"
+        );
       }
 
       setSimulation(data);
     } catch (err) {
-      setError(err.message);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Simulation failed"
+      );
     } finally {
       setLoading(false);
     }
@@ -192,8 +365,11 @@ function App() {
   // ---------------------------------------------------------
 
   function projectEarthPoint(lat, lon) {
-    const x = 50 + lon / 3.6;
-    const y = 50 - lat / 1.8;
+    const safeLat = Number(lat) || 0;
+    const safeLon = Number(lon) || 0;
+
+    const x = 50 + safeLon / 3.6;
+    const y = 50 - safeLat / 1.8;
 
     return {
       x: Math.max(3, Math.min(97, x)),
@@ -213,6 +389,41 @@ function App() {
     ? 1 + Math.sin(animationIndex * 0.4) * 0.15
     : 1;
 
+  const atmosphericFraction =
+    simulationData?.atmospheric_fraction != null
+      ? simulationData.atmospheric_fraction * 100
+      : null;
+
+  // ---------------------------------------------------------
+  // Fragment visual positions
+  // ---------------------------------------------------------
+
+  /*
+   * These are visual fragments only.
+   *
+   * The actual backend physics remains the source of truth.
+   * We are not pretending that the frontend has calculated
+   * independent fragment trajectories.
+   */
+
+  const fragmentProgress =
+    fragmentationReached && fragmentationAltitude != null
+      ? Math.min(
+          Math.max(
+            (fragmentationAltitude - animatedAltitude) /
+              Math.max(fragmentationAltitude, 1),
+            0
+          ),
+          1
+        )
+      : 0;
+
+  const fragmentSpread =
+    8 + fragmentProgress * 18;
+
+  const fragmentVerticalSpread =
+    3 + fragmentProgress * 8;
+
   // ---------------------------------------------------------
   // Render
   // ---------------------------------------------------------
@@ -221,13 +432,15 @@ function App() {
     <div className="app">
       <header className="hero">
         <div>
-          <p className="eyebrow">NASA SPACE APPS • METEOR MADNESS</p>
+          <p className="eyebrow">
+            NASA SPACE APPS • METEOR MADNESS
+          </p>
 
           <h1>☄️ Meteor Madness</h1>
 
           <p className="subtitle">
-            Atmospheric-entry physics driven by real NASA near-Earth asteroid
-            data.
+            Atmospheric-entry physics driven by real NASA
+            near-Earth asteroid data.
           </p>
         </div>
       </header>
@@ -243,50 +456,64 @@ function App() {
           <div className="panel-header">
             <div>
               <p className="section-label">NASA NEOWS</p>
+
               <h2>Near-Earth Asteroids</h2>
             </div>
 
-            <span className="badge">{asteroids.length} objects</span>
+            <span className="badge">
+              {asteroids.length} objects
+            </span>
           </div>
 
           <div className="asteroid-grid">
-            {asteroids.slice(0, 12).map((asteroid) => (
+            {asteroids.map((asteroid) => (
               <button
                 key={asteroid.id}
                 className={`asteroid-card ${
-                  String(asteroid.id) === selectedId ? "selected" : ""
+                  String(asteroid.id) === selectedId
+                    ? "selected"
+                    : ""
                 }`}
                 onClick={() => {
                   setSelectedId(String(asteroid.id));
                   setSimulation(null);
                   setAnimationIndex(0);
                   setAnimationRunning(false);
+                  setError("");
                 }}
               >
                 <strong>{asteroid.name}</strong>
 
                 <span>
-                  Diameter: {asteroid.diameter_km?.toFixed(4) ?? "N/A"} km
+                  Diameter:{" "}
+                  {typeof asteroid.diameter_km === "number"
+                    ? asteroid.diameter_km.toFixed(4)
+                    : "N/A"}{" "}
+                  km
                 </span>
 
                 <span>
                   Velocity:{" "}
                   {asteroid.velocity_kph
-                    ? `${(asteroid.velocity_kph / 3600).toFixed(2)} km/s`
+                    ? `${(
+                        asteroid.velocity_kph / 3600
+                      ).toFixed(2)} km/s`
                     : "N/A"}
                 </span>
 
                 <span>
                   Miss distance:{" "}
                   {asteroid.miss_distance_km
-                    ? `${(asteroid.miss_distance_km / 1e6).toFixed(
-                        2
-                      )} million km`
+                    ? `${(
+                        asteroid.miss_distance_km / 1e6
+                      ).toFixed(2)} million km`
                     : "N/A"}
                 </span>
 
                 {asteroid.hazardous && (
-                  <span className="hazard">Potentially hazardous</span>
+                  <span className="hazard">
+                    Potentially hazardous
+                  </span>
                 )}
               </button>
             ))}
@@ -298,13 +525,16 @@ function App() {
 
           <div className="scenario-panel">
             <div>
-              <p className="section-label">V0.2 TRAJECTORY SCENARIO</p>
+              <p className="section-label">
+                V0.2 TRAJECTORY SCENARIO
+              </p>
 
               <h3>Choose atmospheric-entry location</h3>
 
               <p className="scenario-note">
-                These coordinates define the simulated geographic scenario.
-                They are not derived from NASA orbital data yet.
+                These coordinates define the simulated
+                geographic scenario. They are not derived from
+                NASA orbital data yet.
               </p>
             </div>
 
@@ -358,9 +588,13 @@ function App() {
 
           <div className="simulation-controls">
             <div>
-              <p className="section-label">SELECTED OBJECT</p>
+              <p className="section-label">
+                SELECTED OBJECT
+              </p>
 
-              <h3>{selectedAsteroid?.name ?? "None selected"}</h3>
+              <h3>
+                {selectedAsteroid?.name ?? "None selected"}
+              </h3>
             </div>
 
             <button
@@ -368,7 +602,9 @@ function App() {
               onClick={runSimulation}
               disabled={!selectedId || loading}
             >
-              {loading ? "Running physics..." : "Run Simulation →"}
+              {loading
+                ? "Running physics..."
+                : "Run Simulation →"}
             </button>
           </div>
         </section>
@@ -385,35 +621,126 @@ function App() {
 
             <section className="panel entry-panel">
               <div className="entry-animation">
-                <div className="space-label">ATMOSPHERIC ENTRY</div>
+                <div className="space-label">
+                  ATMOSPHERIC ENTRY
+                </div>
 
                 <div className="entry-sky">
-                  <div
-                    className="meteor"
-                    style={{
-                      left: `${15 + animatedProgress * 70}%`,
-                      top: `${8 + animatedProgress * 72}%`,
-                    }}
-                  >
-                    <div className="meteor-head">☄</div>
+                  {/* SINGLE BODY BEFORE FRAGMENTATION */}
 
-                    <div className="meteor-trail" />
-                  </div>
+                  {!fragmentationReached && (
+                    <div
+                      className="meteor"
+                      style={{
+                        left: `${15 + animatedProgress * 70}%`,
+                        top: `${8 + animatedProgress * 72}%`,
+                        transform: `translate(-50%, -50%) scale(${meteorScale})`,
+                        opacity: meteorOpacity,
+                        filter: `brightness(${1 + meteorIntensity * 1.8})`,
+                      }}
+                    >
+                      <div className="meteor-head">☄</div>
+
+                      <div
+                        className="meteor-trail"
+                        style={{
+                          transform: `scaleY(${trailScale})`,
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* VISUAL FRAGMENTATION */}
+
+                  {fragmentationReached && (
+                    <>
+                      <div
+                        className="meteor"
+                        style={{
+                          left: `calc(${15 + animatedProgress * 70}% - ${fragmentSpread}px)`,
+                          top: `calc(${8 + animatedProgress * 72}% - ${fragmentVerticalSpread}px)`,
+                          transform: `translate(-50%, -50%) scale(${meteorScale * 0.65})`,
+                          opacity: meteorOpacity,
+                          filter: `brightness(${1 + meteorIntensity * 1.8})`,
+                        }}
+                      >
+                        <div className="meteor-head">☄</div>
+
+                        <div
+                          className="meteor-trail"
+                          style={{
+                            transform: `scaleY(${trailScale * 0.7})`,
+                          }}
+                        />
+                      </div>
+
+                      <div
+                        className="meteor"
+                        style={{
+                          left: `calc(${15 + animatedProgress * 70}% + ${fragmentSpread}px)`,
+                          top: `calc(${8 + animatedProgress * 72}% + ${fragmentVerticalSpread}px)`,
+                          transform: `translate(-50%, -50%) scale(${meteorScale * 0.5})`,
+                          opacity: meteorOpacity,
+                          filter: `brightness(${1 + meteorIntensity * 1.5})`,
+                        }}
+                      >
+                        <div className="meteor-head">☄</div>
+
+                        <div
+                          className="meteor-trail"
+                          style={{
+                            transform: `scaleY(${trailScale * 0.55})`,
+                          }}
+                        />
+                      </div>
+
+                      {/* Small debris spark */}
+
+                      <div
+                        className="meteor"
+                        style={{
+                          left: `calc(${15 + animatedProgress * 70}% + ${fragmentSpread * 0.3}px)`,
+                          top: `calc(${8 + animatedProgress * 72}% - ${fragmentVerticalSpread * 1.8}px)`,
+                          transform:
+                            "translate(-50%, -50%) scale(0.18)",
+                          opacity: 0.9,
+                        }}
+                      >
+                        <div className="meteor-head">•</div>
+                      </div>
+                    </>
+                  )}
 
                   <div className="atmosphere-layer atmosphere-1" />
+
                   <div className="atmosphere-layer atmosphere-2" />
 
                   <div className="earth-horizon" />
 
                   <div className="entry-info">
                     <span>ALTITUDE</span>
-                    <strong>{animatedAltitude.toFixed(1)} km</strong>
+
+                    <strong>
+                      {animatedAltitude.toFixed(1)} km
+                    </strong>
 
                     <span>VELOCITY</span>
-                    <strong>{animatedVelocity.toFixed(2)} km/s</strong>
+
+                    <strong>
+                      {animatedVelocity.toFixed(2)} km/s
+                    </strong>
 
                     <span>MASS</span>
-                    <strong>{animatedMass.toFixed(0)} t</strong>
+
+                    <strong>
+                      {animatedMass.toFixed(0)} t
+                    </strong>
+
+                    <span>DYNAMIC PRESSURE</span>
+
+                    <strong>
+                      {animatedPressure.toFixed(3)} MPa
+                    </strong>
                   </div>
                 </div>
 
@@ -427,16 +754,7 @@ function App() {
                 </div>
 
                 <div className="animation-status">
-                  {simulationData?.fragmentation_detected &&
-                  simulationData?.fragmentation_altitude_m != null &&
-                  animatedAltitude <=
-                    simulationData.fragmentation_altitude_m / 1000 ? (
-                    <strong>💥 FRAGMENTATION DETECTED</strong>
-                  ) : animationRunning ? (
-                    <strong>☄️ ATMOSPHERIC ENTRY IN PROGRESS</strong>
-                  ) : (
-                    <strong>✓ SIMULATION COMPLETE</strong>
-                  )}
+                  <strong>{animationStatus}</strong>
                 </div>
               </div>
             </section>
@@ -448,7 +766,9 @@ function App() {
             <section className="panel earth-panel">
               <div className="panel-header">
                 <div>
-                  <p className="section-label">EARTH SCENARIO</p>
+                  <p className="section-label">
+                    EARTH SCENARIO
+                  </p>
 
                   <h2>Simulated Entry Location</h2>
                 </div>
@@ -464,18 +784,6 @@ function App() {
                     role="img"
                     aria-label="Simplified Earth projection showing the simulated entry location"
                   >
-                    <defs>
-                      <radialGradient
-                        id="earthGradient"
-                        cx="38%"
-                        cy="35%"
-                        r="70%"
-                      >
-                        <stop offset="0%" />
-                        <stop offset="100%" />
-                      </radialGradient>
-                    </defs>
-
                     <ellipse
                       cx="50"
                       cy="50"
@@ -537,14 +845,19 @@ function App() {
                 </div>
 
                 <div className="trajectory-details">
-                  <p className="section-label">SCENARIO COORDINATES</p>
+                  <p className="section-label">
+                    SCENARIO COORDINATES
+                  </p>
 
                   <div className="coordinate-grid">
                     <div>
                       <span>Latitude</span>
 
                       <strong>
-                        {trajectory?.entry_latitude_deg?.toFixed(4)}°
+                        {trajectory?.entry_latitude_deg?.toFixed(
+                          4
+                        ) ?? "N/A"}
+                        °
                       </strong>
                     </div>
 
@@ -552,7 +865,10 @@ function App() {
                       <span>Longitude</span>
 
                       <strong>
-                        {trajectory?.entry_longitude_deg?.toFixed(4)}°
+                        {trajectory?.entry_longitude_deg?.toFixed(
+                          4
+                        ) ?? "N/A"}
+                        °
                       </strong>
                     </div>
 
@@ -560,7 +876,10 @@ function App() {
                       <span>Azimuth</span>
 
                       <strong>
-                        {trajectory?.entry_azimuth_deg?.toFixed(1)}°
+                        {trajectory?.entry_azimuth_deg?.toFixed(
+                          1
+                        ) ?? "N/A"}
+                        °
                       </strong>
                     </div>
 
@@ -568,16 +887,24 @@ function App() {
                       <span>Entry angle</span>
 
                       <strong>
-                        {trajectory?.entry_angle_deg?.toFixed(1)}°
+                        {trajectory?.entry_angle_deg?.toFixed(
+                          1
+                        ) ?? "N/A"}
+                        °
                       </strong>
                     </div>
                   </div>
 
                   <p className="coordinate-source">
-                    📍 {trajectory?.coordinate_source}
+                    📍{" "}
+                    {trajectory?.coordinate_source ??
+                      "scenario_input"}
                   </p>
 
-                  <p className="scenario-note">{trajectory?.note}</p>
+                  <p className="scenario-note">
+                    {trajectory?.note ??
+                      "Geographic coordinates are scenario inputs in V0.2."}
+                  </p>
                 </div>
               </div>
             </section>
@@ -589,36 +916,45 @@ function App() {
             <section className="panel">
               <div className="panel-header">
                 <div>
-                  <p className="section-label">MODEL ASSUMPTIONS</p>
+                  <p className="section-label">
+                    MODEL ASSUMPTIONS
+                  </p>
 
                   <h2>Physics Parameters</h2>
                 </div>
               </div>
 
               <p className="assumption-note">
-                These values are engineering assumptions used by the V0.1
-                model. They are not measured physical properties of the
-                selected asteroid.
+                These values are engineering assumptions used
+                by the V0.1 model. They are not measured
+                physical properties of the selected asteroid.
               </p>
 
               <div className="assumptions-grid">
-                {Object.entries(simulation.assumptions ?? {}).map(
-                  ([key, value]) => (
-                    <div className="assumption-card" key={key}>
-                      <span>
-                        {key
-                          .replaceAll("_", " ")
-                          .replace(/\b\w/g, (letter) => letter.toUpperCase())}
-                      </span>
+                {Object.entries(
+                  simulation.assumptions ?? {}
+                ).map(([key, value]) => (
+                  <div
+                    className="assumption-card"
+                    key={key}
+                  >
+                    <span>
+                      {key
+                        .replaceAll("_", " ")
+                        .replace(
+                          /\b\w/g,
+                          (letter) =>
+                            letter.toUpperCase()
+                        )}
+                    </span>
 
-                      <strong>
-                        {typeof value === "number"
-                          ? value.toLocaleString()
-                          : String(value)}
-                      </strong>
-                    </div>
-                  )
-                )}
+                    <strong>
+                      {typeof value === "number"
+                        ? value.toLocaleString()
+                        : String(value)}
+                    </strong>
+                  </div>
+                ))}
               </div>
             </section>
 
@@ -627,23 +963,27 @@ function App() {
             ================================================= */}
 
             <section className="panel scientific-note">
-              <p className="section-label">SCIENTIFIC SCOPE</p>
+              <p className="section-label">
+                SCIENTIFIC SCOPE
+              </p>
 
               <h2>Model limitations</h2>
 
               <p>
-                Meteor Madness V0.1 is a simplified engineering model for
-                atmospheric-entry analysis. It is not a NASA-grade
-                atmospheric entry, fragmentation, CFD, hydrocode, or
+                Meteor Madness V0.1 is a simplified
+                engineering model for atmospheric-entry
+                analysis. It is not a NASA-grade atmospheric
+                entry, fragmentation, CFD, hydrocode, or
                 consequence model.
               </p>
 
               <p>
-                Results depend on uncertain asteroid properties and the
-                engineering assumptions shown above. Fragmentation is
-                represented using an effective dynamic-pressure threshold,
-                and atmospheric energy deposition is based on modeled
-                aerodynamic drag work.
+                Results depend on uncertain asteroid
+                properties and the engineering assumptions
+                shown above. Fragmentation is represented
+                using an effective dynamic-pressure threshold,
+                and atmospheric energy deposition is based on
+                modeled aerodynamic drag work.
               </p>
             </section>
 
@@ -655,14 +995,23 @@ function App() {
               <div className="result-card">
                 <span>Outcome</span>
 
-                <strong>{simulationData.outcome}</strong>
+                <strong>
+                  {simulationData?.outcome ?? "N/A"}
+                </strong>
               </div>
 
               <div className="result-card">
                 <span>Initial mass</span>
 
                 <strong>
-                  {(simulationData.initial_mass_kg / 1e6).toFixed(2)} Mt
+                  {typeof simulationData?.initial_mass_kg ===
+                  "number"
+                    ? (
+                        simulationData.initial_mass_kg /
+                        1e9
+                      ).toFixed(2)
+                    : "N/A"}{" "}
+                  Mt
                 </strong>
               </div>
 
@@ -670,9 +1019,13 @@ function App() {
                 <span>Atmospheric drag work</span>
 
                 <strong>
-                  {(
-                    simulationData.atmospheric_drag_work_J / 1e15
-                  ).toFixed(3)}{" "}
+                  {typeof simulationData?.atmospheric_drag_work_J ===
+                  "number"
+                    ? (
+                        simulationData.atmospheric_drag_work_J /
+                        1e15
+                      ).toFixed(3)
+                    : "N/A"}{" "}
                   PJ
                 </strong>
               </div>
@@ -681,7 +1034,7 @@ function App() {
                 <span>Fragmentation</span>
 
                 <strong>
-                  {simulationData.fragmentation_detected
+                  {simulationData?.fragmentation_detected
                     ? "Detected"
                     : "Not detected"}
                 </strong>
@@ -691,16 +1044,20 @@ function App() {
                 <span>Ground impact energy</span>
 
                 <strong>
-                  {simulationData.ground_impact_energy_J != null
+                  {typeof simulationData?.ground_impact_energy_J ===
+                  "number"
                     ? (
-                        simulationData.ground_impact_energy_J / 1e15
+                        simulationData.ground_impact_energy_J /
+                        1e15
                       ).toFixed(3) + " PJ"
                     : "N/A"}
                 </strong>
               </div>
 
               <div className="result-card">
-                <span>Atmospheric energy fraction</span>
+                <span>
+                  Atmospheric energy fraction
+                </span>
 
                 <strong>
                   {atmosphericFraction != null
@@ -716,14 +1073,16 @@ function App() {
 
             {simulationData.fragmentation_detected && (
               <section className="panel event-panel">
-                <p className="section-label">FRAGMENTATION EVENT</p>
+                <p className="section-label">
+                  FRAGMENTATION EVENT
+                </p>
 
                 <h2>Structural failure detected</h2>
 
                 <p>
-                  The simplified model detected fragmentation when atmospheric
-                  dynamic pressure reached the configured effective material
-                  strength.
+                  The simplified model detected fragmentation
+                  when atmospheric dynamic pressure reached
+                  the configured effective material strength.
                 </p>
 
                 <div className="event-details">
@@ -731,7 +1090,11 @@ function App() {
                     <span>Altitude</span>
 
                     <strong>
-                      {fragmentationAltitude?.toFixed(2)} km
+                      {fragmentationAltitude != null
+                        ? `${fragmentationAltitude.toFixed(
+                            2
+                          )} km`
+                        : "N/A"}
                     </strong>
                   </div>
 
@@ -739,7 +1102,9 @@ function App() {
                     <span>Velocity</span>
 
                     <strong>
-                      {simulationData.profile?.length
+                      {simulationData.profile?.length &&
+                      simulationData.fragmentation_altitude_m !=
+                        null
                         ? (
                             simulationData.profile.reduce(
                               (closest, point) =>
@@ -769,22 +1134,31 @@ function App() {
             ================================================= */}
 
             <section className="charts-grid">
+              {/* VELOCITY */}
+
               <div className="panel chart-panel">
                 <div className="panel-header">
                   <div>
-                    <p className="section-label">TRAJECTORY</p>
+                    <p className="section-label">
+                      TRAJECTORY
+                    </p>
 
                     <h2>Velocity vs Altitude</h2>
                   </div>
                 </div>
 
-                <ResponsiveContainer width="100%" height={320}>
+                <ResponsiveContainer
+                  width="100%"
+                  height={320}
+                >
                   <LineChart data={profile}>
                     <CartesianGrid strokeDasharray="3 3" />
 
                     <XAxis
                       dataKey="altitude_km"
                       reversed
+                      type="number"
+                      domain={["auto", "auto"]}
                       label={{
                         value: "Altitude (km)",
                         position: "insideBottom",
@@ -800,7 +1174,17 @@ function App() {
                       }}
                     />
 
-                    <Tooltip />
+                    <Tooltip
+                      formatter={(value) => [
+                        `${Number(value).toFixed(3)} km/s`,
+                        "Velocity",
+                      ]}
+                      labelFormatter={(value) =>
+                        `Altitude: ${Number(value).toFixed(
+                          2
+                        )} km`
+                      }
+                    />
 
                     {fragmentationAltitude != null && (
                       <ReferenceLine
@@ -814,10 +1198,13 @@ function App() {
                       dataKey="velocity_km_s"
                       strokeWidth={2}
                       dot={false}
+                      isAnimationActive={false}
                     />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
+
+              {/* DYNAMIC PRESSURE */}
 
               <div className="panel chart-panel">
                 <div className="panel-header">
@@ -830,13 +1217,18 @@ function App() {
                   </div>
                 </div>
 
-                <ResponsiveContainer width="100%" height={320}>
+                <ResponsiveContainer
+                  width="100%"
+                  height={320}
+                >
                   <LineChart data={profile}>
                     <CartesianGrid strokeDasharray="3 3" />
 
                     <XAxis
                       dataKey="altitude_km"
                       reversed
+                      type="number"
+                      domain={["auto", "auto"]}
                       label={{
                         value: "Altitude (km)",
                         position: "insideBottom",
@@ -852,7 +1244,17 @@ function App() {
                       }}
                     />
 
-                    <Tooltip />
+                    <Tooltip
+                      formatter={(value) => [
+                        `${Number(value).toFixed(4)} MPa`,
+                        "Dynamic pressure",
+                      ]}
+                      labelFormatter={(value) =>
+                        `Altitude: ${Number(value).toFixed(
+                          2
+                        )} km`
+                      }
+                    />
 
                     {fragmentationAltitude != null && (
                       <ReferenceLine
@@ -866,6 +1268,7 @@ function App() {
                       dataKey="dynamic_pressure_MPa"
                       strokeWidth={2}
                       dot={false}
+                      isAnimationActive={false}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -877,22 +1280,31 @@ function App() {
             ================================================= */}
 
             <section className="charts-grid">
+              {/* MASS */}
+
               <div className="panel chart-panel">
                 <div className="panel-header">
                   <div>
-                    <p className="section-label">ABLATION</p>
+                    <p className="section-label">
+                      ABLATION
+                    </p>
 
                     <h2>Mass vs Altitude</h2>
                   </div>
                 </div>
 
-                <ResponsiveContainer width="100%" height={320}>
+                <ResponsiveContainer
+                  width="100%"
+                  height={320}
+                >
                   <LineChart data={profile}>
                     <CartesianGrid strokeDasharray="3 3" />
 
                     <XAxis
                       dataKey="altitude_km"
                       reversed
+                      type="number"
+                      domain={["auto", "auto"]}
                       label={{
                         value: "Altitude (km)",
                         position: "insideBottom",
@@ -908,7 +1320,17 @@ function App() {
                       }}
                     />
 
-                    <Tooltip />
+                    <Tooltip
+                      formatter={(value) => [
+                        `${Number(value).toFixed(2)} t`,
+                        "Mass",
+                      ]}
+                      labelFormatter={(value) =>
+                        `Altitude: ${Number(value).toFixed(
+                          2
+                        )} km`
+                      }
+                    />
 
                     {fragmentationAltitude != null && (
                       <ReferenceLine
@@ -922,43 +1344,94 @@ function App() {
                       dataKey="mass_tonnes"
                       strokeWidth={2}
                       dot={false}
+                      isAnimationActive={false}
                     />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
 
+              {/* ENERGY DEPOSITION */}
+
               <div className="panel chart-panel">
                 <div className="panel-header">
                   <div>
-                    <p className="section-label">ENERGY DEPOSITION</p>
+                    <p className="section-label">
+                      ENERGY DEPOSITION
+                    </p>
 
-                    <h2>Atmospheric Energy Deposition</h2>
+                    <h2>
+                      Atmospheric Energy Deposition
+                    </h2>
                   </div>
                 </div>
 
-                <ResponsiveContainer width="100%" height={320}>
-                  <LineChart data={profile}>
+                <ResponsiveContainer
+                  width="100%"
+                  height={320}
+                >
+                  <LineChart
+                    data={profile}
+                    margin={{
+                      top: 10,
+                      right: 20,
+                      left: 20,
+                      bottom: 25,
+                    }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" />
 
                     <XAxis
                       dataKey="altitude_km"
                       reversed
+                      type="number"
+                      domain={["auto", "auto"]}
                       label={{
                         value: "Altitude (km)",
                         position: "insideBottom",
-                        offset: -5,
+                        offset: -15,
                       }}
                     />
 
                     <YAxis
+                      type="number"
+                      domain={["auto", "auto"]}
+                      tickFormatter={(value) => {
+                        if (value === 0) {
+                          return "0";
+                        }
+
+                        if (Math.abs(value) >= 1000) {
+                          return `${(
+                            value / 1000
+                          ).toFixed(1)}k`;
+                        }
+
+                        if (Math.abs(value) >= 1) {
+                          return value.toFixed(1);
+                        }
+
+                        return value.toExponential(1);
+                      }}
                       label={{
-                        value: "Energy / metre (GJ/m)",
+                        value: "Energy deposition (GJ/m)",
                         angle: -90,
                         position: "insideLeft",
                       }}
                     />
 
-                    <Tooltip />
+                    <Tooltip
+                      formatter={(value) => [
+                        `${Number(value).toExponential(
+                          3
+                        )} GJ/m`,
+                        "Energy deposition",
+                      ]}
+                      labelFormatter={(value) =>
+                        `Altitude: ${Number(value).toFixed(
+                          2
+                        )} km`
+                      }
+                    />
 
                     {fragmentationAltitude != null && (
                       <ReferenceLine
@@ -970,8 +1443,10 @@ function App() {
                     <Line
                       type="monotone"
                       dataKey="energy_deposition_GJ_m"
-                      strokeWidth={2}
+                      strokeWidth={3}
                       dot={false}
+                      connectNulls
+                      isAnimationActive={false}
                     />
                   </LineChart>
                 </ResponsiveContainer>
