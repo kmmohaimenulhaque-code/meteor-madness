@@ -80,11 +80,7 @@ class EntryConditions:
 
 @dataclass(frozen=True)
 class ImpactScenario:
-    """Geographic scenario for the atmospheric-entry trajectory.
-
-    V0.2 treats these values as scenario inputs. They are not inferred
-    from NASA NeoWs asteroid data.
-    """
+    """Geographic scenario for the atmospheric-entry trajectory."""
 
     latitude_deg: float
     longitude_deg: float
@@ -115,7 +111,6 @@ class SimulationConfig:
     max_time_s: float = 1000.0
     min_mass_kg: float = 1e-6
 
-    # V0.1 stops the single-body model when fragmentation is detected.
     stop_on_fragmentation: bool = True
 
     def validate(self) -> None:
@@ -137,11 +132,23 @@ class SimulationConfig:
 
 @dataclass
 class SimulationState:
-    """Dynamic state integrated by RK4."""
+    """
+    Dynamic state integrated by RK4.
+
+    V0.3 state:
+
+        [altitude, velocity, flight_path_angle, downrange, mass]
+
+    V0.2 fragment simulations may omit the V0.3 fields.
+    Their defaults preserve backwards compatibility.
+    """
 
     altitude_m: float
     velocity_m_s: float
     mass_kg: float
+
+    flight_path_angle_rad: float | None = None
+    downrange_m: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -171,6 +178,10 @@ class SimulationSample:
     mass_loss_rate_kg_s: float
     energy_deposition_J: float = 0.0
     energy_deposition_per_meter_J_m: float = 0.0
+
+    # V0.3
+    flight_path_angle_rad: float = 0.0
+    downrange_m: float = 0.0
 
 
 @dataclass(frozen=True)

@@ -18,6 +18,7 @@ from physics.models import (
     SimulationConfig,
 )
 from physics.solver import simulate
+from physics.trajectory import destination_from_downrange
 
 
 load_dotenv()
@@ -25,7 +26,7 @@ load_dotenv()
 
 app = FastAPI(
     title="Meteor Madness Physics API",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 
@@ -149,7 +150,7 @@ def _get_optional_attribute(
 def root():
     return {
         "name": "Meteor Madness Physics API",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "status": "online",
     }
 
@@ -193,26 +194,154 @@ def _build_trajectory(
     *,
     scenario: ImpactScenario,
     entry: EntryConditions,
+    result: Any,
 ) -> dict[str, Any]:
     """
-    Build the public geographic trajectory contract.
+    Build the public V0.3 geographic trajectory contract.
 
-    V0.2 treats geographic coordinates as scenario inputs.
-    They are NOT inferred from NASA NeoWs orbital geometry.
+    V0.3 uses the dynamically integrated parent trajectory:
+
+        [altitude, velocity, flight-path angle, downrange, mass]
+
+    Geographic position is calculated from:
+
+        initial latitude
+        initial longitude
+        entry azimuth
+        integrated surface downrange distance
+
+    The trajectory is still a scenario model. It is NOT derived
+    from the actual orbital state of the NASA NeoWs asteroid.
     """
 
     scenario.validate()
     entry.validate()
 
+    samples = _get_optional_attribute(
+        result,
+        "samples",
+        [],
+    )
+
+    if not samples:
+        raise RuntimeError(
+            "Cannot build trajectory because the simulation "
+            "returned no samples."
+        )
+
+    initial_sample = samples[0]
+    final_sample = samples[-1]
+
+    # ---------------------------------------------------------
+    # Initial trajectory state
+    # ---------------------------------------------------------
+
+    initial_downrange_m = _safe_float(
+        _get_optional_attribute(
+            initial_sample,
+            "downrange_m",
+            0.0,
+        )
+    )
+
+    initial_gamma_rad = _get_optional_attribute(
+        initial_sample,
+        "flight_path_angle_rad",
+        None,
+    )
+
+    if initial_gamma_rad is None:
+        initial_gamma_rad = entry.entry_angle_rad
+
+    # ---------------------------------------------------------
+    # Final trajectory state
+    # ---------------------------------------------------------
+
+    final_downrange_m = _safe_float(
+        _get_optional_attribute(
+            final_sample,
+            "downrange_m",
+            0.0,
+        )
+    )
+
+    final_gamma_rad = _get_optional_attribute(
+        final_sample,
+        "flight_path_angle_rad",
+        None,
+    )
+
+    if final_gamma_rad is None:
+        final_gamma_rad = entry.entry_angle_rad
+
+    final_altitude_m = _safe_float(
+        _get_optional_attribute(
+            final_sample,
+            "altitude_m",
+            0.0,
+        )
+    )
+
+    # ---------------------------------------------------------
+    # Calculate geographic destination
+    # ---------------------------------------------------------
+
+    destination = destination_from_downrange(
+        latitude_deg=scenario.latitude_deg,
+        longitude_deg=scenario.longitude_deg,
+        azimuth_deg=scenario.entry_azimuth_deg,
+        downrange_m=final_downrange_m,
+    )
+
+    final_latitude_deg = _safe_float(
+        destination[0]
+    )
+
+    final_longitude_deg = _safe_float(
+        destination[1]
+    )
+
+    # ---------------------------------------------------------
+    # Public trajectory contract
+    # ---------------------------------------------------------
+
     return {
         "entry_latitude_deg": scenario.latitude_deg,
         "entry_longitude_deg": scenario.longitude_deg,
         "entry_azimuth_deg": scenario.entry_azimuth_deg,
-        "entry_angle_deg": math.degrees(entry.entry_angle_rad),
-        "coordinate_source": "scenario_input",
+
+        "entry_angle_deg": math.degrees(
+            entry.entry_angle_rad
+        ),
+
+        "initial_downrange_m": initial_downrange_m,
+        "final_downrange_m": final_downrange_m,
+
+        "initial_flight_path_angle_deg": math.degrees(
+            _safe_float(initial_gamma_rad)
+        ),
+
+        "final_flight_path_angle_deg": math.degrees(
+            _safe_float(final_gamma_rad)
+        ),
+
+        "final_altitude_m": final_altitude_m,
+
+        "final_latitude_deg": final_latitude_deg,
+        "final_longitude_deg": final_longitude_deg,
+
+        "coordinate_source": "scenario_input_plus_dynamic_downrange",
+
+        "model": (
+            "V0.3 ballistic dynamic trajectory on a spherical Earth"
+        ),
+
         "note": (
-            "Geographic coordinates are scenario inputs in V0.2 "
-            "and are not derived from NASA NeoWs orbital geometry."
+            "Geographic coordinates begin from scenario inputs. "
+            "Final position is calculated from dynamically "
+            "integrated surface downrange distance and the "
+            "specified entry azimuth. The trajectory is not "
+            "derived from NASA NeoWs orbital geometry."
         ),
     }
 
@@ -229,9 +358,18 @@ def _build_profile(result: Any) -> list[dict[str, Any]]:
     IMPORTANT:
     SimulationResult does NOT expose `profile`.
     The solver records atmospheric-entry points in `samples`.
+
+    V0.3 adds:
+        flight_path_angle_rad
+        flight_path_angle_deg
+        downrange_m
     """
 
-    samples = _get_optional_attribute(result, "samples", [])
+    samples = _get_optional_attribute(
+        result,
+        "samples",
+        [],
+    )
 
     if samples is None:
         samples = []
@@ -239,83 +377,173 @@ def _build_profile(result: Any) -> list[dict[str, Any]]:
     profile: list[dict[str, Any]] = []
 
     for sample in samples:
+
+        gamma_rad = _get_optional_attribute(
+            sample,
+            "flight_path_angle_rad",
+            None,
+        )
+
+        downrange_m = _get_optional_attribute(
+            sample,
+            "downrange_m",
+            None,
+        )
+
         profile.append(
             {
                 "time_s": _safe_float(
-                    _get_optional_attribute(sample, "time_s")
+                    _get_optional_attribute(
+                        sample,
+                        "time_s",
+                    )
                 ),
+
                 "altitude_m": _safe_float(
-                    _get_optional_attribute(sample, "altitude_m")
+                    _get_optional_attribute(
+                        sample,
+                        "altitude_m",
+                    )
                 ),
+
                 "velocity_m_s": _safe_float(
-                    _get_optional_attribute(sample, "velocity_m_s")
+                    _get_optional_attribute(
+                        sample,
+                        "velocity_m_s",
+                    )
                 ),
+
                 "mass_kg": _safe_float(
-                    _get_optional_attribute(sample, "mass_kg")
+                    _get_optional_attribute(
+                        sample,
+                        "mass_kg",
+                    )
                 ),
+
+                # -------------------------------------------------
+                # V0.3 dynamic trajectory
+                # -------------------------------------------------
+
+                "flight_path_angle_rad": (
+                    _safe_float(gamma_rad)
+                    if gamma_rad is not None
+                    else None
+                ),
+
+                "flight_path_angle_deg": (
+                    math.degrees(
+                        _safe_float(gamma_rad)
+                    )
+                    if gamma_rad is not None
+                    else None
+                ),
+
+                "downrange_m": (
+                    _safe_float(downrange_m)
+                    if downrange_m is not None
+                    else None
+                ),
+
+                # -------------------------------------------------
+                # Atmospheric state
+                # -------------------------------------------------
+
                 "density_kg_m3": _safe_float(
-                    _get_optional_attribute(sample, "density_kg_m3")
+                    _get_optional_attribute(
+                        sample,
+                        "density_kg_m3",
+                    )
                 ),
+
                 "temperature_K": _safe_float(
-                    _get_optional_attribute(sample, "temperature_K")
+                    _get_optional_attribute(
+                        sample,
+                        "temperature_K",
+                    )
                 ),
+
                 "pressure_Pa": _safe_float(
-                    _get_optional_attribute(sample, "pressure_Pa")
+                    _get_optional_attribute(
+                        sample,
+                        "pressure_Pa",
+                    )
                 ),
+
+                # -------------------------------------------------
+                # Geometry
+                # -------------------------------------------------
+
                 "equivalent_radius_m": _safe_float(
                     _get_optional_attribute(
                         sample,
                         "equivalent_radius_m",
                     )
                 ),
+
                 "projected_area_m2": _safe_float(
                     _get_optional_attribute(
                         sample,
                         "projected_area_m2",
                     )
                 ),
+
+                # -------------------------------------------------
+                # Drag
+                # -------------------------------------------------
+
                 "drag_force_N": _safe_float(
                     _get_optional_attribute(
                         sample,
                         "drag_force_N",
                     )
                 ),
+
                 "drag_acceleration_m_s2": _safe_float(
                     _get_optional_attribute(
                         sample,
                         "drag_acceleration_m_s2",
                     )
                 ),
+
                 "drag_power_W": _safe_float(
                     _get_optional_attribute(
                         sample,
                         "drag_power_W",
                     )
                 ),
+
+                # -------------------------------------------------
+                # Energy
+                # -------------------------------------------------
+
                 "kinetic_energy_J": _safe_float(
                     _get_optional_attribute(
                         sample,
                         "kinetic_energy_J",
                     )
                 ),
+
                 "dynamic_pressure_Pa": _safe_float(
                     _get_optional_attribute(
                         sample,
                         "dynamic_pressure_Pa",
                     )
                 ),
+
                 "mass_loss_rate_kg_s": _safe_float(
                     _get_optional_attribute(
                         sample,
                         "mass_loss_rate_kg_s",
                     )
                 ),
+
                 "energy_deposition_J": _safe_float(
                     _get_optional_attribute(
                         sample,
                         "energy_deposition_J",
                     )
                 ),
+
                 "energy_deposition_per_meter_J_m": _safe_float(
                     _get_optional_attribute(
                         sample,
@@ -333,90 +561,59 @@ def _build_profile(result: Any) -> list[dict[str, Any]]:
 # ============================================================
 
 
-def _build_impact_summary(result: Any) -> tuple[
-    float | None,
-    float | None,
-    float | None,
-]:
+def _build_impact_summary(result: Any) -> tuple[float | None, float | None, float | None]:
     """
-    Aggregate surviving ground-impact fragments.
+    Aggregate surviving fragment ground-impact data.
 
-    Returns:
-        impact_mass_kg
-        impact_velocity_m_s
-        impact_energy_J
+    Fragment trajectories expose their terminal impact state through
+    FragmentOutcome. For ground impacts we aggregate:
+      - mass
+      - kinetic energy
+
+    Impact velocity is reconstructed from the total kinetic energy and
+    total surviving mass.
     """
-
-    fragment_trajectories = _get_optional_attribute(
-        result,
-        "fragment_trajectories",
-        [],
-    )
+    fragment_trajectories = getattr(result, "fragment_trajectories", [])
 
     if not fragment_trajectories:
         return None, None, None
 
-    impact_fragments = []
-
-    for trajectory in fragment_trajectories:
-        outcome = _get_optional_attribute(
-            _get_optional_attribute(
-                trajectory,
-                "outcome",
-                None,
-            ),
-            "outcome",
-            None,
-        )
-
-        if outcome == "ground_impact":
-            impact_fragments.append(trajectory)
-
-    if not impact_fragments:
-        return None, None, None
-
     impact_mass = 0.0
     impact_energy = 0.0
+    impact_fragment_count = 0
 
-    for trajectory in impact_fragments:
-        consequences = _get_optional_attribute(
-            trajectory,
-            "consequences",
-            None,
-        )
+    for trajectory in fragment_trajectories:
+        outcome = getattr(trajectory, "outcome", None)
 
-        if consequences is None:
+        if outcome is None:
             continue
 
-        impact_mass += _safe_float(
-            _get_optional_attribute(
-                consequences,
-                "surviving_mass_kg",
-            )
+        if getattr(outcome, "outcome", None) != "ground_impact":
+            continue
+
+        mass_kg = float(getattr(outcome, "mass_kg", 0.0))
+        kinetic_energy_J = float(
+            getattr(outcome, "kinetic_energy_J", 0.0)
         )
 
-        impact_energy += _safe_float(
-            _get_optional_attribute(
-                consequences,
-                "impact_energy_J",
-            )
-        )
+        if mass_kg <= 0.0:
+            continue
 
-    if impact_mass <= 0.0:
+        impact_mass += mass_kg
+        impact_energy += max(kinetic_energy_J, 0.0)
+        impact_fragment_count += 1
+
+    if impact_fragment_count == 0 or impact_mass <= 0.0:
         return None, None, None
 
+    if impact_energy <= 0.0:
+        return impact_mass, None, impact_energy
+
     impact_velocity = math.sqrt(
-        max(
-            0.0,
-            2.0 * impact_energy / impact_mass,
-        )
+        2.0 * impact_energy / impact_mass
     )
 
-    return (
-        impact_mass,
-        impact_velocity,
-        impact_energy,
-    )
+    return impact_mass, impact_velocity, impact_energy
 
 
 def _build_fragmentation_summary(result: Any) -> tuple[
@@ -604,6 +801,7 @@ def _build_simulation_response(
     atmospheric_fraction = None
 
     if event_energy is not None:
+
         value = _get_optional_attribute(
             event_energy,
             "atmospheric_drag_work_J",
@@ -686,6 +884,7 @@ def _build_simulation_response(
         trajectory=_build_trajectory(
             scenario=scenario,
             entry=entry,
+            result=result,
         ),
 
         profile=profile,
@@ -749,6 +948,7 @@ def run_entry_simulation(
         asteroid=asteroid,
         entry=entry,
         config=config,
+        scenario=scenario,
     )
 
     return _build_simulation_response(
@@ -775,7 +975,11 @@ async def simulate_from_neo(
     resolve physical parameters, and run the atmospheric-entry
     simulation.
 
-    Geographic values are scenario inputs in V0.2.
+    Geographic values are scenario inputs.
+
+    V0.3 dynamically integrates:
+        flight-path angle
+        downrange distance
     """
 
     # ---------------------------------------------------------
@@ -847,6 +1051,7 @@ async def simulate_from_neo(
         asteroid=resolved.asteroid,
         entry=resolved.entry,
         config=SimulationConfig(),
+        scenario=scenario,
     )
 
     # ---------------------------------------------------------
