@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import math
+import os
 
+from dotenv import load_dotenv
+
+from nasa_client import fetch_neos
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
@@ -18,7 +22,7 @@ app = FastAPI(
     title="Meteor Madness Physics API",
     version="0.1.0",
 )
-
+load_dotenv()
 
 class SimulationRequest(BaseModel):
     diameter_m: float = Field(gt=0)
@@ -72,7 +76,29 @@ def root():
         "status": "online",
     }
 
+@app.get("/api/neos")
+async def get_neos(
+    start_date: str | None = None,
+    end_date: str | None = None,
+):
+    api_key = os.getenv("NASA_API_KEY")
 
+    if not api_key:
+        return {
+            "status": "error",
+            "message": "NASA_API_KEY is not configured",
+        }
+
+    data = await fetch_neos(
+        api_key=api_key,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    return {
+        "status": "ok",
+        **data,
+    }
 @app.post("/api/simulation/entry", response_model=SimulationResponse)
 def run_entry_simulation(request: SimulationRequest):
     asteroid = AsteroidParameters(
