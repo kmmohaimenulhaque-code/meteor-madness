@@ -1,4 +1,13 @@
 from __future__ import annotations
+from physics.airburst import (
+    AirburstClassification,
+    classify_airburst,
+)
+from physics.event_energy import (
+    EventEnergySummary,
+    aggregate_event_energy,
+)
+
 from physics.deposition import build_energy_deposition_profile
 from physics.deposition import (
     energy_deposited_between_samples,
@@ -51,6 +60,8 @@ class SimulationResult:
     total_drag_energy_J: float
     fragment_trajectories: tuple[FragmentTrajectory, ...] = ()
     energy_deposition_profile: tuple[dict, ...] = ()
+    event_energy: EventEnergySummary | None = None
+    airburst_classification: AirburstClassification | None = None
 
 def gravity_acceleration(altitude_m: float) -> float:
     """Return gravitational acceleration at altitude."""
@@ -511,6 +522,15 @@ def simulate(
     energy_deposition_profile = build_energy_deposition_profile(
         samples
     )
+    event_energy = aggregate_event_energy(
+        parent_deposition_profile=energy_deposition_profile,
+        fragment_trajectories=fragment_trajectories,
+    )
+
+    airburst_classification = classify_airburst(
+        atmospheric_energy_J=event_energy.atmospheric_drag_work_J,
+        ground_impact_energy_J=event_energy.ground_impact_energy_J,
+    )
 
     return SimulationResult(
         samples=samples,
@@ -518,4 +538,6 @@ def simulate(
         total_drag_energy_J=total_drag_energy_J,
         fragment_trajectories=fragment_trajectories,
         energy_deposition_profile=energy_deposition_profile,
+        event_energy=event_energy,
+        airburst_classification=airburst_classification,
     )
