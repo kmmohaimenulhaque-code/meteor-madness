@@ -1,17 +1,22 @@
-export default function AnalystPanel({ analyst, terrain, tsunami, hasSimulation }) {
-  // Show panel after a simulation even if enrichment is missing (helps debug)
-  if (!analyst && !terrain && !tsunami) {
-    if (!hasSimulation) {
-      return null;
-    }
+export default function AnalystPanel({
+  analyst,
+  terrain,
+  tsunami,
+  environment,
+  impactBranch,
+  hasSimulation,
+}) {
+  const env = environment || terrain;
+
+  if (!analyst && !env && !tsunami && !impactBranch) {
+    if (!hasSimulation) return null;
     return (
       <section className="analyst-panel">
         <h3>AI Analyst / Impact Environment</h3>
         <p className="muted">
-          No analyst payload in the API response. Ensure the backend patch is
-          applied: <code>python backend/apply_next_frontier_patch.py</code> and
-          restart uvicorn. Optional: set <code>GEMINI_API_KEY</code> in{" "}
-          <code>backend/.env</code>.
+          No environment payload. Pull latest branch and ensure{" "}
+          <code>ensureEnrichment</code> runs, or apply{" "}
+          <code>python backend/apply_next_frontier_patch.py</code>.
         </p>
       </section>
     );
@@ -27,54 +32,134 @@ export default function AnalystPanel({ analyst, terrain, tsunami, hasSimulation 
           ? "risk-moderate"
           : "risk-low";
 
+  const surface = env?.surface || env?.surface_type || "unknown";
+  const conf =
+    typeof env?.surface_confidence === "number"
+      ? env.surface_confidence
+      : typeof env?.confidence === "number"
+        ? env.confidence
+        : null;
+
+  const branch = impactBranch?.branch;
+
   return (
     <section className="analyst-panel">
-      <h3>AI Analyst / Impact Environment</h3>
+      <h3>Environment Engine / Impact Branch</h3>
 
-      {terrain && (
+      {env && (
         <div className="analyst-block">
-          <h4>Location engine</h4>
+          <h4>Environment</h4>
           <p>
-            <strong>{terrain.terrain_label ?? terrain.surface_type}</strong>
+            <strong>{surface}</strong>
+            {" · confidence: "}
+            {conf != null ? conf.toFixed(2) : "n/a"}
             {" · "}
-            surface: {terrain.surface_type}
-            {" · "}
-            confidence:{" "}
-            {typeof terrain.confidence === "number"
-              ? terrain.confidence.toFixed(2)
-              : "n/a"}
+            {env.data_status || "n/a"}
           </p>
-          {terrain.material_notes && (
-            <p className="muted">{terrain.material_notes}</p>
+          <p className="muted">
+            source: {env.terrain_source || "n/a"}
+            {env.material?.type
+              ? ` · material: ${env.material.type} (${env.material.density_kg_m3} kg/m³)`
+              : ""}
+          </p>
+          <p className="muted">
+            {env.coordinates
+              ? `lat ${env.coordinates.latitude}, lon ${env.coordinates.longitude}`
+              : null}
+            {env.elevation_m != null ? ` · elev ${env.elevation_m} m` : ""}
+            {env.bathymetry_m != null ? ` · bathymetry ${env.bathymetry_m} m` : ""}
+          </p>
+        </div>
+      )}
+
+      {impactBranch && (
+        <div className="analyst-block">
+          <h4>Physics branch: {branch}</h4>
+          <p className="muted">
+            models: {(impactBranch.models_run || []).join(", ") || "none"}
+          </p>
+
+          {branch === "land" && (
+            <ul>
+              <li>
+                Crater diameter:{" "}
+                {impactBranch.crater?.final_diameter_m != null
+                  ? `${Number(impactBranch.crater.final_diameter_m).toFixed(1)} m`
+                  : "n/a"}
+              </li>
+              <li>
+                Blast radius:{" "}
+                {impactBranch.blast?.radius_m != null
+                  ? `${Number(impactBranch.blast.radius_m).toFixed(1)} m`
+                  : "n/a"}
+              </li>
+              <li>
+                Thermal radius:{" "}
+                {impactBranch.thermal?.radius_m != null
+                  ? `${Number(impactBranch.thermal.radius_m).toFixed(1)} m`
+                  : "n/a"}
+              </li>
+            </ul>
+          )}
+
+          {branch === "ocean" && (
+            <ul>
+              <li>
+                Water displacement:{" "}
+                {impactBranch.water_displacement?.estimated_volume_km3 ?? "n/a"} km³
+              </li>
+              <li>
+                Tsunami source amplitude:{" "}
+                {impactBranch.tsunami?.estimated_source_amplitude_m != null
+                  ? `${Number(
+                      impactBranch.tsunami.estimated_source_amplitude_m
+                    ).toFixed(1)} m`
+                  : "n/a"}
+              </li>
+              <li>
+                Seafloor crater (screening):{" "}
+                {impactBranch.seafloor_effects?.estimated_crater_on_seafloor_m ??
+                  "n/a"}{" "}
+                m
+              </li>
+            </ul>
+          )}
+
+          {branch === "ice" && impactBranch.ice_response && (
+            <ul>
+              <li>
+                Excavation diameter:{" "}
+                {impactBranch.ice_response.estimated_excavation_diameter_m} m
+              </li>
+              <li>
+                Melt volume: {impactBranch.ice_response.estimated_melt_volume_m3} m³
+              </li>
+            </ul>
+          )}
+
+          {branch === "refused" && (
+            <p className="muted">{impactBranch.reason}</p>
           )}
         </div>
       )}
 
-      {tsunami && (
+      {tsunami && branch !== "ocean" && (
         <div className="analyst-block">
           <h4>Tsunami screening</h4>
-          {tsunami.applicable ? (
-            <p>
-              Source amplitude ≈{" "}
-              <strong>
-                {Number(tsunami.estimated_source_amplitude_m).toFixed(1)} m
-              </strong>
-              {" · "}
-              energy ≈{" "}
-              {Number(tsunami.impact_energy_megatons_tnt).toExponential(2)} Mt
-            </p>
-          ) : (
-            <p className="muted">Not applicable (land or negligible energy)</p>
-          )}
+          <p className="muted">Not applicable for this surface</p>
         </div>
       )}
 
       {analyst && (
         <div className={`analyst-block ${riskClass}`}>
           <h4>
-            Report{" "}
+            AI Report{" "}
             <span className="badge">
-              {analyst.source === "gemini" ? "Gemini" : "Rule-based"}
+              {analyst.source === "gemini"
+                ? "Gemini"
+                : analyst.source === "rule_based_client"
+                  ? "Client"
+                  : "Rule-based"}
             </span>
           </h4>
           <p>
@@ -95,30 +180,6 @@ export default function AnalystPanel({ analyst, terrain, tsunami, hasSimulation 
                 <ul>
                   {analyst.key_findings.map((item, i) => (
                     <li key={`f-${i}`}>{item}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-
-          {Array.isArray(analyst.limitations) &&
-            analyst.limitations.length > 0 && (
-              <>
-                <h5>Limitations</h5>
-                <ul>
-                  {analyst.limitations.map((item, i) => (
-                    <li key={`l-${i}`}>{item}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-
-          {Array.isArray(analyst.recommended_actions) &&
-            analyst.recommended_actions.length > 0 && (
-              <>
-                <h5>Recommended actions</h5>
-                <ul>
-                  {analyst.recommended_actions.map((item, i) => (
-                    <li key={`a-${i}`}>{item}</li>
                   ))}
                 </ul>
               </>
