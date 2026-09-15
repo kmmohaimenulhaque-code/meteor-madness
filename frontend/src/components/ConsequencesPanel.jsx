@@ -1,4 +1,7 @@
-function formatNumber(value, digits = 2) {
+function formatNumber(
+  value,
+  digits = 2
+) {
   if (
     value == null ||
     !Number.isFinite(Number(value))
@@ -69,29 +72,38 @@ export default function ConsequencesPanel({
     0;
 
   const thermalRadius =
-    consequences
-      .maximum_thermal_radius_m ??
+    consequences.maximum_thermal_radius_m ??
     consequences.thermal_radius_m ??
     crater.thermal_radius_m ??
     0;
 
   const blastRadius =
-    consequences
-      .maximum_blast_radius_m ??
+    consequences.maximum_blast_radius_m ??
     consequences.blast_radius_m ??
     crater.blast_radius_m ??
     0;
 
   const seismicRadius =
-    consequences
-      .maximum_seismic_radius_m ??
+    consequences.maximum_seismic_radius_m ??
     consequences.seismic_radius_m ??
     crater.seismic_radius_m ??
     0;
 
+  const earthquakeMagnitude =
+    consequences.predicted_earthquake_magnitude ??
+    crater.predicted_earthquake_magnitude ??
+    null;
+
   const fragmentCount =
     consequences.fragment_count ??
     0;
+
+  const impactEnergyMt =
+    consequences.impact_energy_megatons_tnt;
+
+  const craterType =
+    crater.crater_type ??
+    "N/A";
 
 
   return (
@@ -100,6 +112,7 @@ export default function ConsequencesPanel({
       <div className="panel-header">
 
         <div>
+
           <p className="section-label">
             V0.4 CONSEQUENCES
           </p>
@@ -107,15 +120,18 @@ export default function ConsequencesPanel({
           <h2>
             Impact consequences
           </h2>
+
         </div>
 
         <span className="badge">
+
           {
             consequences.scenario ===
             "fragmented_ground_impacts"
               ? "Fragmented impact"
               : "Ground impact"
           }
+
         </span>
 
       </div>
@@ -131,8 +147,7 @@ export default function ConsequencesPanel({
 
           <strong>
             {formatMt(
-              consequences
-                .impact_energy_megatons_tnt
+              impactEnergyMt
             )}
           </strong>
 
@@ -140,8 +155,7 @@ export default function ConsequencesPanel({
             {formatNumber(
               consequences.impact_energy_J,
               3
-            )}{" "}
-            J
+            )} J
           </small>
 
         </div>
@@ -157,8 +171,7 @@ export default function ConsequencesPanel({
             {formatNumber(
               consequences.surviving_mass_kg,
               0
-            )}{" "}
-            kg
+            )} kg
           </strong>
 
         </div>
@@ -177,9 +190,7 @@ export default function ConsequencesPanel({
           </strong>
 
           <small>
-            {crater.crater_type ??
-              "N/A"}{" "}
-            crater
+            {craterType} crater
           </small>
 
         </div>
@@ -195,9 +206,32 @@ export default function ConsequencesPanel({
             {formatNumber(
               craterDepth,
               1
-            )}{" "}
-            m
+            )} m
           </strong>
+
+        </div>
+
+
+        <div className="consequence-card earthquake-card">
+
+          <span className="consequence-label">
+            Predicted earthquake
+          </span>
+
+          <strong>
+            {
+              earthquakeMagnitude != null
+                ? `${formatNumber(
+                    earthquakeMagnitude,
+                    2
+                  )} Mw`
+                : "N/A"
+            }
+          </strong>
+
+          <small>
+            Equivalent-energy screening estimate
+          </small>
 
         </div>
 
@@ -207,8 +241,9 @@ export default function ConsequencesPanel({
       <div className="consequence-zones">
 
         <div>
+
           <span>
-            ☀ Thermal screening zone
+            🔥 Thermal screening zone
           </span>
 
           <strong>
@@ -216,10 +251,12 @@ export default function ConsequencesPanel({
               thermalRadius
             )}
           </strong>
+
         </div>
 
 
         <div>
+
           <span>
             💨 Blast screening zone
           </span>
@@ -229,12 +266,14 @@ export default function ConsequencesPanel({
               blastRadius
             )}
           </strong>
+
         </div>
 
 
         <div>
+
           <span>
-            🌍 Seismic screening zone
+            🌎 Seismic screening zone
           </span>
 
           <strong>
@@ -242,6 +281,7 @@ export default function ConsequencesPanel({
               seismicRadius
             )}
           </strong>
+
         </div>
 
       </div>
@@ -262,13 +302,32 @@ export default function ConsequencesPanel({
       )}
 
 
+      <div className="consequence-model-notes">
+
+        <span>
+          MODEL NOTES
+        </span>
+
+        {(consequences.model_notes ?? []).map(
+          (note, index) => (
+            <p key={index}>
+              • {note}
+            </p>
+          )
+        )}
+
+      </div>
+
+
       <p className="consequence-disclaimer">
-        Crater sizing uses first-order
-        terrestrial impact scaling.
-        Thermal, blast and seismic
-        radii are simplified screening
-        estimates, not precision damage
-        boundaries.
+
+        ⚠️ Crater sizing uses first-order
+        terrestrial impact scaling. Thermal,
+        blast, seismic and earthquake values
+        are simplified screening estimates,
+        not precision damage or earthquake
+        forecasts.
+
       </p>
 
     </section>

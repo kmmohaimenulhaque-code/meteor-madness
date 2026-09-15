@@ -12,6 +12,8 @@ import {
 import "./App.css";
 import ConsequencesPanel
   from "./components/ConsequencesPanel";
+import EarthImpactMap
+  from "./components/EarthImpactMap";
 
 function App() {
   const [animationIndex, setAnimationIndex] = useState(0);
@@ -765,152 +767,22 @@ function App() {
                 EARTH / LOCATION
             ================================================= */}
 
-            <section className="panel earth-panel">
-              <div className="panel-header">
-                <div>
-                  <p className="section-label">
-                    EARTH SCENARIO
-                  </p>
+{/* =================================================
+    EARTH IMPACT ANALYSIS
+================================================= */}
 
-                  <h2>Simulated Entry Location</h2>
-                </div>
-
-                <span className="badge">V0.2</span>
-              </div>
-
-              <div className="earth-layout">
-                <div className="earth-visual">
-                  <svg
-                    className="earth-svg"
-                    viewBox="0 0 100 100"
-                    role="img"
-                    aria-label="Simplified Earth projection showing the simulated entry location"
-                  >
-                    <ellipse
-                      cx="50"
-                      cy="50"
-                      rx="47"
-                      ry="45"
-                      className="earth-surface"
-                    />
-
-                    <ellipse
-                      cx="50"
-                      cy="50"
-                      rx="15"
-                      ry="45"
-                      className="earth-grid-line"
-                    />
-
-                    <ellipse
-                      cx="50"
-                      cy="50"
-                      rx="31"
-                      ry="45"
-                      className="earth-grid-line"
-                    />
-
-                    <ellipse
-                      cx="50"
-                      cy="50"
-                      rx="47"
-                      ry="15"
-                      className="earth-grid-line"
-                    />
-
-                    <ellipse
-                      cx="50"
-                      cy="50"
-                      rx="47"
-                      ry="30"
-                      className="earth-grid-line"
-                    />
-
-                    {marker && (
-                      <>
-                        <circle
-                          cx={marker.x}
-                          cy={marker.y}
-                          r={2.2 * markerScale}
-                          className="impact-marker"
-                        />
-
-                        <circle
-                          cx={marker.x}
-                          cy={marker.y}
-                          r={5 * markerScale}
-                          className="impact-pulse"
-                        />
-                      </>
-                    )}
-                  </svg>
-                </div>
-
-                <div className="trajectory-details">
-                  <p className="section-label">
-                    SCENARIO COORDINATES
-                  </p>
-
-                  <div className="coordinate-grid">
-                    <div>
-                      <span>Latitude</span>
-
-                      <strong>
-                        {trajectory?.entry_latitude_deg?.toFixed(
-                          4
-                        ) ?? "N/A"}
-                        °
-                      </strong>
-                    </div>
-
-                    <div>
-                      <span>Longitude</span>
-
-                      <strong>
-                        {trajectory?.entry_longitude_deg?.toFixed(
-                          4
-                        ) ?? "N/A"}
-                        °
-                      </strong>
-                    </div>
-
-                    <div>
-                      <span>Azimuth</span>
-
-                      <strong>
-                        {trajectory?.entry_azimuth_deg?.toFixed(
-                          1
-                        ) ?? "N/A"}
-                        °
-                      </strong>
-                    </div>
-
-                    <div>
-                      <span>Entry angle</span>
-
-                      <strong>
-                        {trajectory?.entry_angle_deg?.toFixed(
-                          1
-                        ) ?? "N/A"}
-                        °
-                      </strong>
-                    </div>
-                  </div>
-
-                  <p className="coordinate-source">
-                    📍{" "}
-                    {trajectory?.coordinate_source ??
-                      "scenario_input"}
-                  </p>
-
-                  <p className="scenario-note">
-                    {trajectory?.note ??
-                      "Geographic coordinates are scenario inputs in V0.2."}
-                  </p>
-                </div>
-              </div>
-            </section>
-
+<EarthImpactMap
+  trajectory={trajectory}
+  consequences={
+    simulationData?.consequences
+  }
+  animationRunning={
+    animationRunning
+  }
+  animationIndex={
+    animationIndex
+  }
+/>
             {/* =================================================
                 MODEL ASSUMPTIONS
             ================================================= */}

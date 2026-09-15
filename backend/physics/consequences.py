@@ -36,6 +36,23 @@ BLAST_THRESHOLD_J_M2 = 1.0e6
 SEISMIC_THRESHOLD_J_M2 = 1.0e1
 
 
+# ------------------------------------------------------------
+# Earthquake magnitude screening model.
+#
+# Approximate seismic energy relation:
+#
+#     log10(E[J]) = 1.5 M + 4.8
+#
+# This converts the modelled coupled seismic energy into
+# an equivalent earthquake magnitude.
+#
+# It is a screening estimate, NOT a regional seismic forecast.
+# ------------------------------------------------------------
+
+EARTHQUAKE_LOG10_ENERGY_OFFSET = 4.8
+EARTHQUAKE_MAGNITUDE_DENOMINATOR = 1.5
+
+
 # ============================================================
 # DATA MODELS
 # ============================================================
@@ -56,14 +73,15 @@ class ImpactConsequences:
     """
     Complete V0.4 impact-consequence estimate.
 
-    The crater calculation is based on first-order terrestrial
-    impact scaling.
+    Crater sizing uses first-order terrestrial impact scaling.
 
     Thermal, blast and seismic radii are deliberately labelled
     screening estimates rather than precision damage boundaries.
+
+    Earthquake magnitude is an equivalent-energy screening estimate.
     """
 
-    # Existing V0.2/V0.3 contract.
+    # Existing contract.
     outcome: str
     surviving_mass_kg: float
     impact_velocity_m_s: float
@@ -82,6 +100,9 @@ class ImpactConsequences:
     thermal_radius_m: float = 0.0
     blast_radius_m: float = 0.0
     seismic_radius_m: float = 0.0
+
+    # New V0.4 visualisation quantity.
+    predicted_earthquake_magnitude: float | None = None
 
     consequence_zones: tuple[
         ConsequenceZone,
@@ -107,19 +128,13 @@ def _validate_inputs(
 ) -> None:
 
     if not outcome:
-        raise ValueError(
-            "outcome cannot be empty"
-        )
+        raise ValueError("outcome cannot be empty")
 
     if mass_kg < 0.0:
-        raise ValueError(
-            "mass_kg cannot be negative"
-        )
+        raise ValueError("mass_kg cannot be negative")
 
     if velocity_m_s < 0.0:
-        raise ValueError(
-            "velocity_m_s cannot be negative"
-        )
+        raise ValueError("velocity_m_s cannot be negative")
 
     if bulk_density_kg_m3 <= 0.0:
         raise ValueError(
@@ -149,15 +164,11 @@ def _diameter_from_mass(
     mass_kg: float,
     density_kg_m3: float,
 ) -> float:
-    """Equivalent spherical diameter."""
 
     if mass_kg <= 0.0:
         return 0.0
 
-    volume_m3 = (
-        mass_kg
-        / density_kg_m3
-    )
+    volume_m3 = mass_kg / density_kg_m3
 
     return (
         6.0
@@ -179,20 +190,6 @@ def _transient_crater_diameter(
     velocity_m_s: float,
     impact_angle_rad: float,
 ) -> float:
-    """
-    Gravity-regime transient crater scaling.
-
-    First-order Earth impact model:
-
-        Dtc ∝
-        density_ratio^(1/3)
-        × L^0.78
-        × v^0.44
-        × g^-0.22
-        × sin(theta)^(1/3)
-
-    This is an engineering-scale approximation.
-    """
 
     if (
         impactor_diameter_m <= 0.0
@@ -219,16 +216,12 @@ def _transient_crater_diameter(
         * angle_factor ** (1.0 / 3.0)
     )
 
-    return max(
-        result,
-        0.0,
-    )
+    return max(result, 0.0)
 
 
 def _final_crater_diameter(
     transient_diameter_m: float,
 ) -> tuple[float, str]:
-    """Estimate final crater diameter and morphology."""
 
     if transient_diameter_m <= 0.0:
         return 0.0, "none"
@@ -265,7 +258,6 @@ def _crater_depth(
     final_crater_diameter_m: float,
     crater_type: str,
 ) -> float:
-    """Estimate final crater depth."""
 
     if final_crater_diameter_m <= 0.0:
         return 0.0
@@ -296,7 +288,7 @@ def _crater_depth(
 
 
 # ============================================================
-# SCREENING ZONE MODEL
+# SCREENING ZONES
 # ============================================================
 
 
@@ -306,13 +298,6 @@ def _screening_radius(
     coupling_fraction: float,
     threshold_J_m2: float,
 ) -> float:
-    """
-    Simple spherical energy-fluence screening radius.
-
-        E / (4*pi*r^2) = threshold
-
-    This intentionally does NOT model atmospheric blast physics.
-    """
 
     if energy_J <= 0.0:
         return 0.0
@@ -338,6 +323,41 @@ def _screening_radius(
     )
 
 
+def _predicted_earthquake_magnitude(
+    *,
+    impact_energy_J: float,
+) -> float | None:
+    """
+    Convert modelled seismic energy into an equivalent
+    earthquake magnitude.
+
+    E[J] ≈ 10^(1.5M + 4.8)
+
+    This is a display-oriented screening estimate.
+    """
+
+    if impact_energy_J <= 0.0:
+        return None
+
+    seismic_energy = (
+        impact_energy_J
+        * SEISMIC_COUPLING_FRACTION
+    )
+
+    if seismic_energy <= 0.0:
+        return None
+
+    magnitude = (
+        math.log10(seismic_energy)
+        - EARTHQUAKE_LOG10_ENERGY_OFFSET
+    ) / EARTHQUAKE_MAGNITUDE_DENOMINATOR
+
+    return round(
+        max(magnitude, 0.0),
+        2,
+    )
+
+
 # ============================================================
 # MAIN CONSEQUENCE ENGINE
 # ============================================================
@@ -356,12 +376,6 @@ def calculate_impact_consequences(
         math.pi / 4.0
     ),
 ) -> ImpactConsequences:
-    """
-    Calculate V0.4 impact consequences.
-
-    Existing callers remain compatible because all V0.4-specific
-    physical parameters have defaults.
-    """
 
     _validate_inputs(
         outcome=outcome,
@@ -405,12 +419,14 @@ def calculate_impact_consequences(
         outcome != "ground_impact"
         or impact_energy <= 0.0
     ):
+
         transient_crater = 0.0
         final_crater = 0.0
         crater_type = "none"
         crater_depth = 0.0
 
     else:
+
         transient_crater = (
             _transient_crater_diameter(
                 impactor_diameter_m=(
@@ -479,6 +495,12 @@ def calculate_impact_consequences(
         ),
     )
 
+    earthquake_magnitude = (
+        _predicted_earthquake_magnitude(
+            impact_energy_J=impact_energy
+        )
+    )
+
     # --------------------------------------------------------
     # Public zones
     # --------------------------------------------------------
@@ -522,13 +544,10 @@ def calculate_impact_consequences(
         ),
     )
 
-    # --------------------------------------------------------
-    # Notes
-    # --------------------------------------------------------
-
     notes = (
         "Crater sizing uses first-order terrestrial impact scaling.",
         "Thermal, blast and seismic radii are screening estimates.",
+        "Earthquake magnitude is an equivalent-energy screening estimate.",
         "Results carry substantial physical-model uncertainty.",
         "This is an educational engineering model, not a hydrocode.",
     )
@@ -575,6 +594,10 @@ def calculate_impact_consequences(
             seismic_radius
         ),
 
+        predicted_earthquake_magnitude=(
+            earthquake_magnitude
+        ),
+
         consequence_zones=zones,
 
         model_notes=notes,
@@ -589,7 +612,6 @@ def calculate_impact_consequences(
 def consequences_to_dict(
     consequences: ImpactConsequences,
 ) -> dict[str, Any]:
-    """Convert consequence model into JSON-safe data."""
 
     data = asdict(
         consequences
