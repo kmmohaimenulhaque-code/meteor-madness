@@ -87,7 +87,7 @@ class ImpactScenario:
     entry_azimuth_deg: float
 
     # Optional explicit surface hint for the Location Engine.
-    # Allowed values: "land", "ocean", or None (auto-classify).
+    # Allowed values: "land", "ocean", "ice", or None (auto-classify).
     surface_hint: str | None = None
 
     def validate(self) -> None:
@@ -108,9 +108,9 @@ class ImpactScenario:
 
         if self.surface_hint is not None:
             hint = self.surface_hint.strip().lower()
-            if hint not in ("land", "ocean"):
+            if hint not in ("land", "ocean", "ice"):
                 raise ValueError(
-                    "surface_hint must be 'land', 'ocean', or None"
+                    "surface_hint must be 'land', 'ocean', 'ice', or None"
                 )
 
 
