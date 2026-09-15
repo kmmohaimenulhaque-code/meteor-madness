@@ -99,21 +99,18 @@ export default function RiskMitigationChat({
   useEffect(() => {
     const intro = simulation
       ? [
-          `Mitigation+ ready · surface **${surface}**.`,
+          `Hey — Mitigation+ is in with this run as **${surface}**.`,
           "",
-          "Immediate priorities:",
-          ...priorities.map((p, i) => `${i + 1}. ${p}`),
-          "",
-          "Ask about engines, NASA services, limitations, or mitigation steps.",
+          surface === "ocean"
+            ? "Ocean branch is active, so we won't invent a land crater. Ask me why, or what to do first on the coast."
+            : surface === "land"
+              ? "Land branch is active — crater/blast/thermal screening applies. Ask priorities or why a number looks the way it does."
+              : "Ask about priorities, engines, NASA services, or limits — I'll answer in plain language.",
         ].join("\n")
       : [
-          "Mitigation+ assistant online.",
+          "Hey — Mitigation+ is online.",
           "",
-          "Run a simulation for impact-specific advice, or ask:",
-          "• How does this project work?",
-          "• Which NASA services are used?",
-          "• What are the limitations?",
-          "• How does the environment engine work?",
+          "Run a simulation for impact-specific advice, or just ask how the project works, which NASA services we use, or what the limits are.",
         ].join("\n");
     setMessages([{ role: "assistant", content: intro, source: "intro" }]);
   }, [simulation, surface]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -198,7 +195,7 @@ export default function RiskMitigationChat({
             <div>
               <strong>Mitigation and more</strong>
               <span className="risk-chat-sub">
-                Defence · engines · NASA · limits · {surface}
+                Plain-language help · {surface}
               </span>
             </div>
             <button
@@ -222,10 +219,16 @@ export default function RiskMitigationChat({
                 )}
               </div>
             ))}
-            {busy && <div className="risk-bubble assistant">Thinking…</div>}
+            {busy && <div className="risk-bubble assistant">One moment…</div>}
           </div>
 
           <div className="risk-quick">
+            <button
+              type="button"
+              onClick={() => send("Why didn’t Meteor Madness calculate a surface crater?")}
+            >
+              Why no crater?
+            </button>
             <button type="button" onClick={() => send("What are the immediate priorities?")}>
               Priorities
             </button>
@@ -234,9 +237,6 @@ export default function RiskMitigationChat({
             </button>
             <button type="button" onClick={() => send("Which NASA services does this use?")}>
               NASA
-            </button>
-            <button type="button" onClick={() => send("Explain the working engines")}>
-              Engines
             </button>
             <button type="button" onClick={() => send("What are the project limitations?")}>
               Limits
@@ -253,7 +253,7 @@ export default function RiskMitigationChat({
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask mitigation, engines, NASA, limits…"
+              placeholder="Ask anything — crater, engines, NASA…"
               disabled={busy}
             />
             <button type="submit" disabled={busy || !input.trim()}>
@@ -268,30 +268,41 @@ export default function RiskMitigationChat({
 
 function localReply(message, surface, priorities) {
   const lower = message.toLowerCase();
+  if (
+    lower.includes("crater") ||
+    lower.includes("didn") ||
+    lower.includes("why")
+  ) {
+    if (surface === "ocean") {
+      return (
+        "Because the selected impact environment was ocean. The land-crater model was " +
+        "intentionally not applied; the simulation instead used the ocean branch for " +
+        "water displacement, tsunami screening and seafloor interaction."
+      );
+    }
+    if (surface === "unknown") {
+      return (
+        "Because we couldn't confirm land vs ocean from the elevation service. " +
+        "When surface is unknown, Meteor Madness refuses to invent a crater or tsunami."
+      );
+    }
+  }
   if (lower.includes("nasa")) {
-    return [
-      "Wired: NASA NeoWs (asteroids) + OpenTopoData GEBCO (elevation/bathymetry).",
-      "Reference only: JPL Horizons, CNEOS Sentry/Fireballs, Earthdata.",
-      "NeoWs needs NASA_API_KEY from https://api.nasa.gov/",
-    ].join("\n");
+    return (
+      "We call NASA NeoWs for the asteroid feed and GEBCO (via OpenTopoData) for " +
+      "elevation/bathymetry. Other NASA services like Horizons or Sentry are useful " +
+      "context, but they're not wired into this MVP yet."
+    );
   }
   if (lower.includes("limit")) {
-    return [
-      "Key limitations:",
-      "• RK4 entry screening ≠ full hydrocode",
-      "• Uncertain strength/density/ablation",
-      "• Tsunami/crater are screening estimates",
-      "• No data ⇒ no invented environment physics",
-    ].join("\n");
-  }
-  if (lower.includes("engine") || lower.includes("project") || lower.includes("work")) {
-    return [
-      "Pipeline: NASA → entry RK4 → GEBCO environment → land/ocean/ice branch → report → AI.",
-      "Engines: solver, location_engine, impact_environment, consequences, tsunami, ai_analyst.",
-    ].join("\n");
+    return (
+      "Honestly: this is screening, not hydrocode. Strength and ablation are uncertain, " +
+      "tsunami and crater numbers are first-order, and with no Earth data we simply " +
+      "won't invent environment-specific effects."
+    );
   }
   return [
-    `Surface=${surface}. Immediate priorities:`,
+    `This run is sitting on **${surface}**. If I had to move first, it'd be:`,
     ...priorities.map((p, i) => `${i + 1}. ${p}`),
   ].join("\n");
 }
