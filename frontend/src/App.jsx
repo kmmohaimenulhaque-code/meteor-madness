@@ -10,6 +10,8 @@ import {
   ReferenceLine,
 } from "recharts";
 import "./App.css";
+import ConsequencesPanel
+  from "./components/ConsequencesPanel";
 
 function App() {
   const [animationIndex, setAnimationIndex] = useState(0);
@@ -1053,7 +1055,11 @@ function App() {
                     : "N/A"}
                 </strong>
               </div>
-
+<ConsequencesPanel
+  consequences={
+    simulationData?.consequences
+  }
+/>
               <div className="result-card">
                 <span>
                   Atmospheric energy fraction
