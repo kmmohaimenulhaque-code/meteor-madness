@@ -4,6 +4,7 @@ import "./analyst.css";
 import ConsequencesPanel from "./components/ConsequencesPanel";
 import EarthImpactMap from "./components/EarthImpactMap";
 import AnalystPanel from "./components/AnalystPanel";
+import { ensureEnrichment } from "./localEnrichment";
 
 function App() {
   const [asteroids, setAsteroids] = useState([]);
@@ -60,7 +61,6 @@ function App() {
 
   const simulationData = simulation?.simulation ?? null;
   const trajectory = simulation?.trajectory ?? null;
-  // Top-level (from-neo) or nested on entry payload
   const analyst = simulation?.analyst ?? simulationData?.analyst ?? null;
   const terrain = simulation?.terrain ?? simulationData?.terrain ?? null;
   const tsunami = simulation?.tsunami ?? simulationData?.tsunami ?? null;
@@ -68,7 +68,6 @@ function App() {
   function onCoordinateChange(setter) {
     return (event) => {
       const v = event.target.value.trim();
-      // Allow empty, lone minus, and partial decimals while typing
       if (v === "" || /^-?\d*\.?\d*$/.test(v)) {
         setter(v);
       }
@@ -120,6 +119,8 @@ function App() {
         throw new Error(data.message || "Simulation failed");
       }
 
+      // Fill terrain/tsunami/analyst if backend has not been patched yet
+      data = ensureEnrichment(data, latNum, lonNum);
       setSimulation(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Simulation failed");
