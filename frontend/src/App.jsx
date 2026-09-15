@@ -1,33 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-} from "recharts";
 import "./App.css";
 import "./analyst.css";
-import ConsequencesPanel
-  from "./components/ConsequencesPanel";
-import EarthImpactMap
-  from "./components/EarthImpactMap";
-import AnalystPanel
-  from "./components/AnalystPanel";
+import ConsequencesPanel from "./components/ConsequencesPanel";
+import EarthImpactMap from "./components/EarthImpactMap";
+import AnalystPanel from "./components/AnalystPanel";
 
 function App() {
-  const [animationIndex, setAnimationIndex] = useState(0);
-  const [animationRunning, setAnimationRunning] = useState(false);
-
   const [asteroids, setAsteroids] = useState([]);
   const [selectedId, setSelectedId] = useState("");
 
-  const [latitude, setLatitude] = useState(24.3745);
-  const [longitude, setLongitude] = useState(88.6042);
-  const [azimuth, setAzimuth] = useState(90);
+  // Strings so users can type negatives like -33.9 without the field resetting
+  const [latitude, setLatitude] = useState("24.3745");
+  const [longitude, setLongitude] = useState("88.6042");
+  const [azimuth, setAzimuth] = useState("90");
 
   const [simulation, setSimulation] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -39,23 +24,14 @@ function App() {
     async function loadAsteroids() {
       try {
         const response = await fetch("/api/neos");
-
         if (!response.ok) {
           throw new Error("Failed to fetch NASA asteroid data");
         }
-
         const data = await response.json();
+        if (cancelled) return;
 
-        if (cancelled) {
-          return;
-        }
-
-        const objects = Array.isArray(data.asteroids)
-          ? data.asteroids
-          : [];
-
+        const objects = Array.isArray(data.asteroids) ? data.asteroids : [];
         setAsteroids(objects);
-
         if (objects.length > 0) {
           setSelectedId(String(objects[0].id));
         }
@@ -71,43 +47,61 @@ function App() {
     }
 
     loadAsteroids();
-
     return () => {
       cancelled = true;
     };
   }, []);
 
   const selectedAsteroid = useMemo(() => {
-    return asteroids.find((item) => String(item.id) === String(selectedId)) ?? null;
+    return (
+      asteroids.find((item) => String(item.id) === String(selectedId)) ?? null
+    );
   }, [asteroids, selectedId]);
 
   const simulationData = simulation?.simulation ?? null;
   const trajectory = simulation?.trajectory ?? null;
-  const analyst = simulation?.analyst ?? null;
-  const terrain = simulation?.terrain ?? null;
-  const tsunami = simulation?.tsunami ?? null;
+  // Top-level (from-neo) or nested on entry payload
+  const analyst = simulation?.analyst ?? simulationData?.analyst ?? null;
+  const terrain = simulation?.terrain ?? simulationData?.terrain ?? null;
+  const tsunami = simulation?.tsunami ?? simulationData?.tsunami ?? null;
 
-  // NOTE: full UI body is large; this file is restored from main + Next Frontier hooks.
-  // If you see this short version, re-run: git checkout main -- frontend/src/App.jsx
-  // then: python frontend/apply_frontend_patch.py
+  function onCoordinateChange(setter) {
+    return (event) => {
+      const v = event.target.value.trim();
+      // Allow empty, lone minus, and partial decimals while typing
+      if (v === "" || /^-?\d*\.?\d*$/.test(v)) {
+        setter(v);
+      }
+    };
+  }
 
   async function runSimulation() {
-    if (!selectedId) {
-      return;
-    }
+    if (!selectedId) return;
 
     setLoading(true);
     setError("");
     setSimulation(null);
-    setAnimationIndex(0);
-    setAnimationRunning(false);
 
     try {
+      const latNum = Number(latitude);
+      const lonNum = Number(longitude);
+      const azNum = Number(azimuth);
+
+      if (Number.isNaN(latNum) || latNum < -90 || latNum > 90) {
+        throw new Error("Latitude must be a number between -90 and 90");
+      }
+      if (Number.isNaN(lonNum) || lonNum < -180 || lonNum > 180) {
+        throw new Error("Longitude must be a number between -180 and 180");
+      }
+      if (Number.isNaN(azNum) || azNum < 0 || azNum >= 360) {
+        throw new Error("Azimuth must be a number between 0 and 360");
+      }
+
       const params = new URLSearchParams({
         asteroid_id: selectedId,
-        latitude_deg: String(latitude),
-        longitude_deg: String(longitude),
-        entry_azimuth_deg: String(azimuth),
+        latitude_deg: String(latNum),
+        longitude_deg: String(lonNum),
+        entry_azimuth_deg: String(azNum),
       });
 
       const response = await fetch(
@@ -127,7 +121,6 @@ function App() {
       }
 
       setSimulation(data);
-      setAnimationRunning(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Simulation failed");
     } finally {
@@ -140,14 +133,16 @@ function App() {
       <main>
         <header className="hero-header">
           <h1>Meteor Madness</h1>
-          <p>Next Frontier architecture — entry physics, location, tsunami, AI analyst</p>
+          <p>
+            Next Frontier — entry physics, location, tsunami, AI analyst
+          </p>
         </header>
 
         {error && <div className="error-banner">{error}</div>}
 
-        <section className="simulation-controls">
+        <section className="simulation-controls scenario-grid">
           <label>
-            Asteroid
+            <span>Asteroid</span>
             <select
               value={selectedId}
               onChange={(e) => setSelectedId(e.target.value)}
@@ -161,33 +156,49 @@ function App() {
           </label>
 
           <label>
-            Latitude
+            <span>Latitude (°)</span>
             <input
-              type="number"
+              type="text"
+              inputMode="decimal"
+              placeholder="-90 to 90"
               value={latitude}
-              onChange={(e) => setLatitude(Number(e.target.value))}
+              onChange={onCoordinateChange(setLatitude)}
             />
           </label>
 
           <label>
-            Longitude
+            <span>Longitude (°)</span>
             <input
-              type="number"
+              type="text"
+              inputMode="decimal"
+              placeholder="-180 to 180"
               value={longitude}
-              onChange={(e) => setLongitude(Number(e.target.value))}
+              onChange={onCoordinateChange(setLongitude)}
             />
           </label>
 
           <label>
-            Azimuth
+            <span>Entry azimuth (°)</span>
             <input
-              type="number"
+              type="text"
+              inputMode="decimal"
+              placeholder="0 to 359"
               value={azimuth}
-              onChange={(e) => setAzimuth(Number(e.target.value))}
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                if (v === "" || /^\d*\.?\d*$/.test(v)) {
+                  setAzimuth(v);
+                }
+              }}
             />
           </label>
 
-          <button type="button" onClick={runSimulation} disabled={loading || !selectedId}>
+          <button
+            type="button"
+            className="simulate-button"
+            onClick={runSimulation}
+            disabled={loading || !selectedId}
+          >
             {loading ? "Running…" : "Run simulation"}
           </button>
         </section>
@@ -195,7 +206,8 @@ function App() {
         {selectedAsteroid && (
           <section className="asteroid-meta">
             <p>
-              <strong>{selectedAsteroid.name}</strong> · id {selectedAsteroid.id}
+              <strong>{selectedAsteroid.name}</strong> · id{" "}
+              {selectedAsteroid.id}
             </p>
           </section>
         )}
@@ -210,7 +222,9 @@ function App() {
               <div className="result-card">
                 <span>Fragmentation</span>
                 <strong>
-                  {simulationData?.fragmentation_detected ? "Detected" : "Not detected"}
+                  {simulationData?.fragmentation_detected
+                    ? "Detected"
+                    : "Not detected"}
                 </strong>
               </div>
             </section>
@@ -221,6 +235,7 @@ function App() {
               analyst={analyst}
               terrain={terrain}
               tsunami={tsunami}
+              hasSimulation={Boolean(simulation)}
             />
 
             {trajectory && (
