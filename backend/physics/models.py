@@ -86,6 +86,10 @@ class ImpactScenario:
     longitude_deg: float
     entry_azimuth_deg: float
 
+    # Optional explicit surface hint for the Location Engine.
+    # Allowed values: "land", "ocean", or None (auto-classify).
+    surface_hint: str | None = None
+
     def validate(self) -> None:
         if not -90.0 <= self.latitude_deg <= 90.0:
             raise ValueError(
@@ -101,6 +105,13 @@ class ImpactScenario:
             raise ValueError(
                 "entry_azimuth_deg must be between 0 and 360"
             )
+
+        if self.surface_hint is not None:
+            hint = self.surface_hint.strip().lower()
+            if hint not in ("land", "ocean"):
+                raise ValueError(
+                    "surface_hint must be 'land', 'ocean', or None"
+                )
 
 
 @dataclass(frozen=True)
