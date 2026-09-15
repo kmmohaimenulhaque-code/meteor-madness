@@ -6,6 +6,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from nasa_client import fetch_neos
@@ -14,6 +15,7 @@ from physics.consequences import (
     calculate_impact_consequences,
     consequences_to_dict,
 )
+from physics.enrichment import enrich_payload
 from physics.models import (
     AsteroidParameters,
     EntryConditions,
@@ -32,12 +34,20 @@ from physics.trajectory import (
 load_dotenv()
 
 
-API_VERSION = "0.4.0"
+API_VERSION = "0.5.0"
 
 
 app = FastAPI(
     title="Meteor Madness Physics API",
     version=API_VERSION,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -107,6 +117,11 @@ class SimulationRequest(BaseModel):
         default=90.0,
         ge=0.0,
         lt=360.0,
+    )
+
+    surface_hint: str | None = Field(
+        default=None,
+        description="Optional land or ocean. None = auto-classify.",
     )
 
 
@@ -1307,6 +1322,9 @@ def run_entry_simulation(
         entry_azimuth_deg=(
             request.entry_azimuth_deg
         ),
+        surface_hint=(
+            request.surface_hint
+        ),
     )
 
     config = SimulationConfig(
@@ -1326,12 +1344,19 @@ def run_entry_simulation(
         scenario=scenario,
     )
 
-    return _build_simulation_response(
+    simulation_response = _build_simulation_response(
         result,
         scenario=scenario,
         entry=entry,
         asteroid=asteroid,
     )
+    extra = enrich_payload(
+        scenario=scenario,
+        simulation_response=simulation_response,
+    )
+    payload = simulation_response.model_dump()
+    payload.update(extra)
+    return payload
 
 
 # ============================================================
@@ -1347,12 +1372,14 @@ async def simulate_from_neo(
     latitude_deg: float = 0.0,
     longitude_deg: float = 0.0,
     entry_azimuth_deg: float = 90.0,
+    surface_hint: str | None = None,
 ):
 
     scenario = ImpactScenario(
         latitude_deg=latitude_deg,
         longitude_deg=longitude_deg,
         entry_azimuth_deg=entry_azimuth_deg,
+        surface_hint=surface_hint,
     )
 
     scenario.validate()
@@ -1422,6 +1449,11 @@ async def simulate_from_neo(
         )
     )
 
+    extra = enrich_payload(
+        scenario=scenario,
+        simulation_response=simulation_response,
+    )
+
     return {
 
         "status": "completed",
@@ -1459,6 +1491,8 @@ async def simulate_from_neo(
         "assumptions": (
             resolved.assumptions
         ),
+
+        **extra,
 
         "trajectory": (
             simulation_response.trajectory
