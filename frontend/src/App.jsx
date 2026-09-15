@@ -403,6 +403,10 @@ function App() {
         analyst={analyst}
         simulationData={simulationData}
         asteroid={selectedAsteroid}
+        tsunami={tsunami}
+        latitude={latitude}
+        longitude={longitude}
+        azimuth={azimuth}
       />
     </div>
   );
