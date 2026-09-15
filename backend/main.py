@@ -14,9 +14,6 @@ from physics.consequences import (
     calculate_impact_consequences,
     consequences_to_dict,
 )
-from physics.location_engine import classify_surface
-from physics.tsunami import estimate_tsunami
-from physics.ai_analyst import generate_analyst_report
 from physics.models import (
     AsteroidParameters,
     EntryConditions,
@@ -35,7 +32,7 @@ from physics.trajectory import (
 load_dotenv()
 
 
-API_VERSION = "0.5.0"
+API_VERSION = "0.4.0"
 
 
 app = FastAPI(
@@ -110,11 +107,6 @@ class SimulationRequest(BaseModel):
         default=90.0,
         ge=0.0,
         lt=360.0,
-    )
-
-    surface_hint: str | None = Field(
-        default=None,
-        description="Optional 'land' or 'ocean'. None = auto-classify.",
     )
 
 
@@ -203,7 +195,6 @@ def root():
         "name": "Meteor Madness Physics API",
         "version": API_VERSION,
         "status": "online",
-        "architecture": "Next Frontier (Location → Land/Ocean → Tsunami → AI Analyst)",
     }
 
 
