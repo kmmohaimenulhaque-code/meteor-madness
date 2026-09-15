@@ -1,8 +1,9 @@
 """
-Mitigation+ interactive AI — conversational, human tone.
+Mitigation+ interactive AI — human tone, full run context aware.
 
-Explains mitigation, engines, NASA services, and limitations using
-simulation context. Gemini when GEMINI_API_KEY is set.
+Can discuss: user inputs, selected asteroid, simulation outputs,
+Environment / Impact Branch / AI Report panel data, and place name
+from coordinates (Nominatim).
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ from typing import Any
 
 import httpx
 
+from physics.place_lookup import reverse_geocode
 from physics.project_knowledge import (
     ENGINES,
     LIMITATIONS,
@@ -29,10 +31,10 @@ GEMINI_API_URL = (
 TONE_RULES = """
 Write like a thoughtful teammate, not a manual.
 - Short paragraphs, natural speech.
-- Explain *why* decisions were made (e.g. ocean → no land crater).
-- Avoid robotic lists unless the user asks for a checklist.
-- No casualty inventing. Screening-level honesty.
-- If surface is unknown, say so plainly and refuse invented crater/tsunami steps.
+- Use the actual numbers from simulation context when the user asks about the run.
+- Explain *why* (e.g. ocean → no land crater).
+- If surface is unknown, refuse invented crater/tsunami steps.
+- When coordinates resolve to a place, name it; if not, say the coords plainly.
 """.strip()
 
 
@@ -71,6 +73,212 @@ def immediate_priorities(surface: str) -> list[str]:
     ]
 
 
+def _num(value: Any, digits: int = 2) -> str:
+    try:
+        n = float(value)
+        if abs(n) >= 1000:
+            return f"{n:,.{digits}f}".rstrip("0").rstrip(".")
+        return f"{n:.{digits}f}".rstrip("0").rstrip(".")
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _enrich_place(context: dict[str, Any]) -> dict[str, Any]:
+    """Attach place label from coordinates if not already present."""
+    if context.get("place") and context["place"].get("display_name"):
+        return context
+
+    lat = context.get("latitude")
+    lon = context.get("longitude")
+    if lat is None or lon is None:
+        coords = (context.get("environment") or {}).get("coordinates") or {}
+        lat = coords.get("latitude", lat)
+        lon = coords.get("longitude", lon)
+
+    try:
+        lat_f = float(lat)
+        lon_f = float(lon)
+    except (TypeError, ValueError):
+        return context
+
+    place = reverse_geocode(lat_f, lon_f)
+    enriched = dict(context)
+    enriched["place"] = place
+    enriched["latitude"] = lat_f
+    enriched["longitude"] = lon_f
+    return enriched
+
+
+def _panel_summary(context: dict[str, Any]) -> str:
+    """Human summary of Environment / Impact Branch / AI Report panel."""
+    env = context.get("environment") or {}
+    branch = context.get("impact_branch") or {}
+    analyst = context.get("analyst") or {}
+    sim = context.get("simulation") or {}
+    asteroid = context.get("asteroid") or {}
+    place = context.get("place") or {}
+
+    surface = (
+        env.get("surface")
+        or context.get("surface")
+        or context.get("environment_class")
+        or "unknown"
+    )
+    conf = env.get("surface_confidence", context.get("surface_confidence"))
+    source = env.get("terrain_source") or env.get("source") or "n/a"
+    material = env.get("material") or {}
+    elev = env.get("elevation_m")
+    bathy = env.get("bathymetry_m")
+    lat = context.get("latitude")
+    lon = context.get("longitude")
+    coords = env.get("coordinates") or {}
+    if lat is None:
+        lat = coords.get("latitude")
+    if lon is None:
+        lon = coords.get("longitude")
+
+    place_line = ""
+    if place.get("short_name") or place.get("display_name"):
+        place_line = f"Near **{place.get('short_name') or place.get('display_name')}**. "
+    elif lat is not None and lon is not None:
+        place_line = f"At coordinates {_num(lat, 4)}°, {_num(lon, 4)}°. "
+
+    lines = [
+        f"{place_line}Environment panel says **{surface}**"
+        + (f" with confidence {_num(conf, 2)}" if conf is not None else "")
+        + f" ({env.get('data_status') or 'n/a'}), source **{source}**."
+    ]
+
+    mat_txt = ""
+    if material.get("type"):
+        mat_txt = (
+            f" Material: {material.get('type')}"
+            + (
+                f" ({material.get('density_kg_m3')} kg/m³)"
+                if material.get("density_kg_m3") is not None
+                else ""
+            )
+            + "."
+        )
+    elev_txt = ""
+    if elev is not None:
+        elev_txt = f" Elevation about {_num(elev, 1)} m."
+    if bathy is not None:
+        elev_txt += f" Bathymetry about {_num(bathy, 1)} m."
+    if mat_txt or elev_txt:
+        lines.append(mat_txt.strip() + elev_txt)
+
+    branch_name = branch.get("branch") or context.get("physics_branch") or surface
+    models = branch.get("models_run") or []
+    lines.append(
+        f"Physics branch is **{branch_name}**"
+        + (f" (models: {', '.join(models)})" if models else "")
+        + "."
+    )
+
+    if branch_name == "land":
+        crater = (branch.get("crater") or {}).get("final_diameter_m")
+        blast = (branch.get("blast") or {}).get("radius_m")
+        thermal = (branch.get("thermal") or {}).get("radius_m")
+        bits = []
+        if crater is not None:
+            bits.append(f"crater diameter ~{_num(crater / 1000, 2)} km")
+        if blast is not None:
+            bits.append(f"blast radius ~{_num(blast / 1000, 1)} km")
+        if thermal is not None:
+            bits.append(f"thermal radius ~{_num(thermal / 1000, 1)} km")
+        if bits:
+            lines.append("Land effects: " + "; ".join(bits) + ".")
+    elif branch_name == "ocean":
+        ts = branch.get("tsunami") or context.get("tsunami") or {}
+        amp = ts.get("estimated_source_amplitude_m")
+        if amp is not None:
+            lines.append(
+                f"Ocean screening tsunami source amplitude on the order of {_num(amp, 1)} m "
+                "(not a coastal forecast)."
+            )
+    elif branch_name == "undetermined":
+        lines.append(
+            "Environment-specific crater/tsunami physics was refused — no data, no guess."
+        )
+
+    if analyst:
+        lines.append(
+            f"AI report marks risk **{analyst.get('risk_level', 'n/a')}** "
+            f"with confidence {analyst.get('confidence_label', 'n/a')} "
+            f"({_num(analyst.get('confidence'), 2)}). "
+            f"{analyst.get('summary') or ''}"
+        )
+
+    if sim.get("outcome") or sim.get("fragmentation_detected") is not None:
+        frag = sim.get("fragmentation_detected")
+        lines.append(
+            f"Entry outcome: {sim.get('outcome') or 'n/a'}"
+            + (
+                f"; fragmentation {'detected' if frag else 'not detected'}."
+                if frag is not None
+                else "."
+            )
+        )
+        if sim.get("atmospheric_fraction") is not None:
+            try:
+                lines.append(
+                    f"About {float(sim['atmospheric_fraction']) * 100:.1f}% of the energy "
+                    "looks atmospheric in this screening run."
+                )
+            except (TypeError, ValueError):
+                pass
+
+    if asteroid.get("name") or asteroid.get("id"):
+        lines.append(
+            f"Selected asteroid: {asteroid.get('name') or asteroid.get('id')}"
+            + (
+                f", diameter ~{_num(asteroid.get('diameter_km'), 4)} km"
+                if asteroid.get("diameter_km") is not None
+                else ""
+            )
+            + (
+                ", flagged PHA"
+                if asteroid.get("hazardous")
+                else ""
+            )
+            + (
+                f", miss distance ~{_num(asteroid.get('miss_distance_km'), 0)} km"
+                if asteroid.get("miss_distance_km") is not None
+                else ""
+            )
+            + "."
+        )
+
+    return "\n\n".join(line for line in lines if line)
+
+
+def _explain_no_crater(surface: str, branch: str) -> str:
+    if surface == "ocean" or branch == "ocean":
+        return (
+            "Because the selected impact environment was ocean. The land-crater model "
+            "was intentionally not applied; the simulation instead used the ocean branch "
+            "for water displacement, tsunami screening and seafloor interaction.\n\n"
+            "Showing a land crater next to an ocean result would be misleading, so those "
+            "models stay on separate branches."
+        )
+    if surface == "unknown" or branch == "undetermined":
+        return (
+            "Because the environment engine couldn't confirm land vs ocean. When surface "
+            "is unknown, Meteor Madness refuses to manufacture a crater or a tsunami — "
+            "no data, no guess."
+        )
+    if surface == "ice":
+        return (
+            "This run classified the surface as ice, so land-crater scaling wasn't the "
+            "primary branch. Ice uses its own screening response instead."
+        )
+    return (
+        "On a land branch we do run crater scaling. If the panel shows land with crater "
+        "numbers, those are the screening values from this run."
+    )
+
+
 def _human_priorities(surface: str, branch: str, energy_mt: Any) -> str:
     priorities = immediate_priorities(surface)
     energy_bit = ""
@@ -81,69 +289,29 @@ def _human_priorities(surface: str, branch: str, energy_mt: Any) -> str:
         pass
 
     if surface == "ocean":
-        lead = (
-            f"For an ocean impact (branch={branch}), I'd start with coastal protection, "
-            f"not land-crater thinking.{energy_bit}"
-        )
+        lead = f"For an ocean impact, I'd start with coastal protection, not land-crater thinking.{energy_bit}"
     elif surface == "land":
-        lead = (
-            f"For a land impact (branch={branch}), the first moves are exclusion and "
-            f"blast/thermal/seismic awareness.{energy_bit}"
-        )
+        lead = f"For a land impact, first moves are exclusion and blast/thermal/seismic awareness.{energy_bit}"
     elif surface == "ice":
-        lead = (
-            f"Ice impacts are still screening-level here. Treat the list as orientation, "
-            f"not a field plan.{energy_bit}"
-        )
+        lead = f"Ice impacts stay screening-level here.{energy_bit}"
     else:
         lead = (
-            "We don't have a trusted surface classification right now, so I won't invent "
-            "crater or tsunami steps. Fix the environment data first."
+            "We don't have a trusted surface classification, so I won't invent crater or "
+            "tsunami steps. Fix the environment data first."
         )
 
     body = "\n".join(f"{i}. {p}" for i, p in enumerate(priorities, 1))
-    return f"{lead}\n\nImmediate priorities:\n{body}\n\nThat's educational guidance, not an operational emergency plan."
-
-
-def _explain_no_crater(surface: str, branch: str) -> str:
-    if surface == "ocean" or branch == "ocean":
-        return (
-            "Because the selected impact environment was ocean. The land-crater model "
-            "was intentionally not applied; the simulation instead used the ocean branch "
-            "for water displacement, tsunami screening and seafloor interaction.\n\n"
-            "Showing a land crater next to an ocean result would be misleading, so the UI "
-            "keeps those models on separate branches."
-        )
-    if surface == "unknown" or branch == "undetermined":
-        return (
-            "Because the environment engine couldn't confirm land vs ocean (or the data "
-            "provider failed). When surface is unknown, Meteor Madness refuses to "
-            "manufacture a crater or a tsunami — no data, no guess."
-        )
-    if surface == "ice":
-        return (
-            "This run classified the surface as ice, so the land-crater scaling path "
-            "wasn't the primary branch. Ice uses its own screening response instead."
-        )
-    return (
-        "On a land branch we *do* run crater scaling. If you're not seeing it, check "
-        "that the physics branch is land and that the consequences panel isn't filtered out."
-    )
+    return f"{lead}\n\nImmediate priorities:\n{body}\n\nEducational guidance only — not an operational emergency plan."
 
 
 def _explain_engines() -> str:
     return (
-        "Here's how the working pieces fit together, in plain language.\n\n"
-        "Entry physics (`solver.py`) integrates the asteroid through the atmosphere "
-        "with an RK4 step — drag, ablation, possible fragmentation, energy left at the end.\n\n"
-        "The environment engine (`location_engine.py`) asks GEBCO via OpenTopoData for "
-        "real elevation or seafloor depth. Positive → land, negative → ocean. If that "
-        "lookup fails, we mark surface unknown and stop inventing effects.\n\n"
-        "`impact_environment.py` then picks a branch: land crater/blast/thermal, ocean "
-        "displacement/tsunami/seafloor, ice screening, or refuse.\n\n"
-        "Land consequence scaling lives in `consequences.py`; tsunami screening in "
-        "`tsunami.py`. The AI analyst and this Mitigation+ chat sit on top and never "
-        "override that hierarchy."
+        "Entry physics integrates the body through the atmosphere (RK4 — drag, ablation, "
+        "possible fragmentation). The environment engine asks GEBCO for real elevation or "
+        "depth; land and ocean then take different physics branches. Land gets crater/blast/"
+        "thermal screening; ocean gets displacement and tsunami screening; unknown refuses "
+        "to invent either. The AI panel and this chat only narrate that hierarchy — they "
+        "don't override it."
     )
 
 
@@ -159,34 +327,29 @@ def _explain_nasa() -> str:
         if not m.get("used_in_project")
     ]
     return (
-        "What we actually call live in this project:\n"
+        "What this app actually calls live:\n"
         + "\n".join(wired)
-        + "\n\nWhat I can explain as NASA/planetary-defence context, but we haven't wired yet:\n"
+        + "\n\nUseful NASA context we haven't wired yet:\n"
         + "\n".join(ref)
-        + "\n\nNeoWs needs a NASA_API_KEY from https://api.nasa.gov/. "
-        "I don't push buttons on NASA systems for you — I help you understand what "
-        "this app uses and what the results mean."
+        + "\n\nNeoWs uses NASA_API_KEY from api.nasa.gov. I explain results; I don't operate "
+        "NASA systems for you."
     )
 
 
 def _explain_limitations() -> str:
     points = "\n".join(f"• {item}" for item in LIMITATIONS)
     return (
-        "I'll be straight with you about the limits — this is a Space Apps screening demo, "
-        "not a national crisis model.\n\n"
-        f"{points}\n\n"
-        "If a judge asks what's missing, lead with hydrocode, coastal inundation models, "
-        "and operational decision authority — those are outside this MVP on purpose."
+        "Straight talk on limits — this is a Space Apps screening demo:\n\n"
+        f"{points}"
     )
 
 
 def _explain_project() -> str:
     return (
-        "Meteor Madness is our NASA Space Apps entry: an educational path from a real "
-        "near-Earth object to a careful impact story.\n\n"
-        f"{PROJECT_OVERVIEW.strip()}\n\n"
-        "If you want the machinery under the hood, ask about the engines; if you want "
-        "what to do after a run, ask for immediate priorities."
+        "Meteor Madness walks a real near-Earth object from NASA NeoWs through entry "
+        "physics, a GEBCO environment check, and a strict land/ocean/ice/unknown branch "
+        "before the AI panel and this chat.\n\n"
+        f"{PROJECT_OVERVIEW.strip()}"
     )
 
 
@@ -194,11 +357,56 @@ def _rule_reply(message: str, context: dict[str, Any]) -> str:
     surface = str(
         context.get("surface")
         or context.get("environment_class")
+        or (context.get("environment") or {}).get("surface")
         or "unknown"
     ).lower()
-    branch = str(context.get("physics_branch") or surface).lower()
+    branch = str(
+        context.get("physics_branch")
+        or (context.get("impact_branch") or {}).get("branch")
+        or surface
+    ).lower()
     energy_mt = context.get("impact_energy_mt")
+    if energy_mt is None and context.get("simulation"):
+        energy_mt = context["simulation"].get("impact_energy_megatons_tnt")
     lower = (message or "").lower()
+
+    # Panel / numbers / place / asteroid / simulation questions
+    if any(
+        k in lower
+        for k in (
+            "panel",
+            "environment engine",
+            "impact branch",
+            "this run",
+            "this simulation",
+            "my result",
+            "the results",
+            "what did",
+            "summar",
+            "crater diameter",
+            "blast radius",
+            "thermal",
+            "elev",
+            "bathym",
+            "confidence",
+            "risk",
+            "where is",
+            "what place",
+            "location",
+            "coordinate",
+            "asteroid",
+            "selected",
+            "neo",
+            "diameter",
+            "hazard",
+            "miss distance",
+            "fragment",
+            "energy",
+            "mt",
+            "megaton",
+        )
+    ):
+        return _panel_summary(context)
 
     if any(
         k in lower
@@ -218,69 +426,53 @@ def _rule_reply(message: str, context: dict[str, Any]) -> str:
         k in lower
         for k in (
             "how does",
-            "how do",
             "explain project",
             "what is this",
             "architecture",
             "pipeline",
-            "source code",
-            "codebase",
         )
     ):
         if "nasa" in lower:
             return _explain_nasa()
         if "limit" in lower:
             return _explain_limitations()
-        if any(
-            k in lower
-            for k in ("engine", "solver", "gebco", "environment", "tsunami", "entry")
-        ):
+        if any(k in lower for k in ("engine", "solver", "gebco", "environment")):
             return _explain_engines()
         return _explain_project()
 
-    if any(k in lower for k in ("engine", "solver", "gebco", "working engine")):
+    if any(k in lower for k in ("engine", "solver", "gebco")):
         return _explain_engines()
-
-    if "nasa" in lower or "neows" in lower or "api.nasa" in lower:
+    if "nasa" in lower or "neows" in lower:
         return _explain_nasa()
-
-    if "limit" in lower or "uncertain" in lower or "disclaimer" in lower:
+    if "limit" in lower or "uncertain" in lower:
         return _explain_limitations()
 
     if any(
-        k in lower
-        for k in ("priorit", "immediate", "mitigat", "evacuat", "what should")
+        k in lower for k in ("priorit", "immediate", "mitigat", "evacuat", "what should")
     ):
         return _human_priorities(surface, branch, energy_mt)
 
     if "tsunami" in lower:
         if surface != "ocean":
             return (
-                f"Tsunami steps only make sense when the environment is ocean. "
-                f"This run looks like **{surface}**, so I wouldn't activate coastal "
-                f"tsunami actions from the ocean branch.\n\n"
-                + _explain_no_crater(surface, branch)
+                f"Tsunami steps only make sense for an ocean environment. This run is "
+                f"**{surface}**.\n\n" + _explain_no_crater(surface, branch)
             )
         return _human_priorities("ocean", branch, energy_mt)
 
     if any(k in lower for k in ("crater", "blast", "seismic", "exclusion")):
         if surface != "land":
             return _explain_no_crater(surface, branch)
-        return _human_priorities("land", branch, energy_mt)
-
-    if "unknown" in lower or "no data" in lower or "refuse" in lower:
-        return (
-            "When GEBCO or the network fails, we set surface to unknown and stop. "
-            "That's deliberate: better an honest gap than a fake crater or tsunami.\n\n"
-            + _explain_limitations()
+        return _panel_summary(context) + "\n\n" + _human_priorities(
+            "land", branch, energy_mt
         )
 
+    # Default: orient on this run
     return (
-        f"I've got this run as surface **{surface}** (branch **{branch}**). "
-        "You can ask me why there is or isn't a crater, what to do first for mitigation, "
-        "how the engines work, which NASA services we use, or what the limits are — "
-        "I'll answer in plain language.\n\n"
-        + _human_priorities(surface, branch, energy_mt)
+        _panel_summary(context)
+        + "\n\n"
+        + "Ask me about the crater numbers, the place at these coordinates, the asteroid, "
+        "mitigation priorities, engines, NASA services, or limits."
     )
 
 
@@ -292,14 +484,13 @@ def _gemini_reply(
 ) -> str | None:
     knowledge = knowledge_bundle()
     system = (
-        "You are Mitigation+ for Meteor Madness, a NASA Space Apps educational simulator. "
-        "Sound human: warm, clear, concise — like a knowledgeable teammate. "
-        "Explain decisions in prose when asked (example: if environment was ocean, say the "
-        "land-crater model was intentionally not applied and the ocean branch handled "
-        "displacement, tsunami screening, and seafloor interaction). "
-        "Cover mitigation, architecture, engines, NASA services wired vs reference, and limits. "
-        "Never invent casualties. Never invent crater/tsunami when surface is unknown. "
-        "You advise and explain; you do not operate NASA systems."
+        "You are Mitigation+ for Meteor Madness (NASA Space Apps educational demo). "
+        "Sound human. You can see the full simulation context: user lat/lon/azimuth, "
+        "selected asteroid, environment panel, impact branch, AI analyst report, and "
+        "optional reverse-geocoded place name. Quote real numbers from that context. "
+        "If the user asks where the impact is, use place.display_name or coordinates. "
+        "Explain ocean vs land branching clearly. Never invent casualties or fake "
+        "environment physics when surface is unknown."
     )
     hist_txt = "\n".join(
         f"{m.get('role', 'user')}: {m.get('content', '')}" for m in history[-8:]
@@ -307,14 +498,14 @@ def _gemini_reply(
     prompt = (
         f"{system}\n\n{TONE_RULES}\n\n"
         f"Project knowledge:\n{json.dumps(knowledge, indent=2)}\n\n"
-        f"Simulation context:\n{json.dumps(context, indent=2)}\n\n"
+        f"Full run context:\n{json.dumps(context, indent=2)}\n\n"
         f"Recent chat:\n{hist_txt}\n\nUser: {message}\n\nAssistant:"
     )
     body = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": 0.45,
-            "maxOutputTokens": 1400,
+            "temperature": 0.4,
+            "maxOutputTokens": 1600,
         },
     }
     try:
@@ -346,11 +537,12 @@ def answer_mitigation(
     context: dict[str, Any] | None = None,
     history: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
-    context = context or {}
+    context = _enrich_place(context or {})
     history = history or []
     surface = str(
         context.get("surface")
         or context.get("environment_class")
+        or (context.get("environment") or {}).get("surface")
         or "unknown"
     ).lower()
 
@@ -371,6 +563,7 @@ def answer_mitigation(
         "source": source,
         "immediate_priorities": immediate_priorities(surface),
         "surface": surface,
+        "place": context.get("place"),
         "knowledge": {
             "engines": list(ENGINES.keys()),
             "nasa_wired": [

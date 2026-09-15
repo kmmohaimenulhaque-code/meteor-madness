@@ -37,31 +37,71 @@ function defaultPriorities(surface) {
   ];
 }
 
-function buildContext({ environment, impactBranch, analyst, simulationData, asteroid }) {
+function buildContext({
+  environment,
+  impactBranch,
+  analyst,
+  simulationData,
+  asteroid,
+  tsunami,
+  latitude,
+  longitude,
+  azimuth,
+}) {
   const surface =
     environment?.surface || environment?.surface_type || "unknown";
   const energyJ =
     Number(simulationData?.impact_energy_J) ||
     Number(simulationData?.parent_final_energy_J) ||
+    Number(simulationData?.ground_impact_energy_J) ||
     0;
+
   return {
+    // User inputs
+    latitude: latitude != null && latitude !== "" ? Number(latitude) : null,
+    longitude: longitude != null && longitude !== "" ? Number(longitude) : null,
+    entry_azimuth_deg:
+      azimuth != null && azimuth !== "" ? Number(azimuth) : null,
+
+    // Environment / panel
     surface,
     environment_class: surface,
+    surface_confidence: environment?.surface_confidence ?? environment?.confidence,
     physics_branch: impactBranch?.branch || environment?.physics_branch,
+    environment: environment || null,
+    impact_branch: impactBranch || null,
+    tsunami: tsunami || null,
+    analyst: analyst || null,
+
+    // Simulation
+    simulation: simulationData
+      ? {
+          outcome: simulationData.outcome,
+          fragmentation_detected: simulationData.fragmentation_detected,
+          fragmentation_altitude_m: simulationData.fragmentation_altitude_m,
+          atmospheric_fraction: simulationData.atmospheric_fraction,
+          impact_energy_J: energyJ,
+          impact_energy_megatons_tnt: energyJ / 4.184e15,
+          parent_final_mass_kg: simulationData.parent_final_mass_kg,
+          parent_final_velocity_m_s: simulationData.parent_final_velocity_m_s,
+        }
+      : null,
     impact_energy_mt: energyJ / 4.184e15,
-    risk_level: analyst?.risk_level,
-    summary: analyst?.summary,
-    elevation_m: environment?.elevation_m,
-    bathymetry_m: environment?.bathymetry_m,
-    terrain_source: environment?.terrain_source || environment?.source,
-    data_status: environment?.data_status,
+
+    // Asteroid
     asteroid: asteroid
       ? {
           id: asteroid.id,
           name: asteroid.name,
-          diameter_km: asteroid.diameter_km,
-          hazardous: asteroid.hazardous,
-          miss_distance_km: asteroid.miss_distance_km,
+          diameter_km:
+            asteroid.diameter_km ?? asteroid.estimated_diameter_km ?? null,
+          hazardous:
+            asteroid.hazardous ||
+            asteroid.is_potentially_hazardous_asteroid ||
+            false,
+          miss_distance_km: asteroid.miss_distance_km ?? null,
+          velocity_kph: asteroid.velocity_kph ?? null,
+          approach_date: asteroid.approach_date ?? null,
         }
       : null,
   };
@@ -74,6 +114,10 @@ export default function RiskMitigationChat({
   analyst,
   simulationData,
   asteroid,
+  tsunami,
+  latitude,
+  longitude,
+  azimuth,
 }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -88,8 +132,22 @@ export default function RiskMitigationChat({
         analyst,
         simulationData,
         asteroid,
+        tsunami,
+        latitude,
+        longitude,
+        azimuth,
       }),
-    [environment, impactBranch, analyst, simulationData, asteroid]
+    [
+      environment,
+      impactBranch,
+      analyst,
+      simulationData,
+      asteroid,
+      tsunami,
+      latitude,
+      longitude,
+      azimuth,
+    ]
   );
 
   const surface = context.surface || "unknown";
@@ -99,18 +157,14 @@ export default function RiskMitigationChat({
   useEffect(() => {
     const intro = simulation
       ? [
-          `Hey — Mitigation+ is in with this run as **${surface}**.`,
+          `Hey — I've got this run loaded as **${surface}**.`,
           "",
-          surface === "ocean"
-            ? "Ocean branch is active, so we won't invent a land crater. Ask me why, or what to do first on the coast."
-            : surface === "land"
-              ? "Land branch is active — crater/blast/thermal screening applies. Ask priorities or why a number looks the way it does."
-              : "Ask about priorities, engines, NASA services, or limits — I'll answer in plain language.",
+          "I can talk through the environment panel, crater/blast numbers, the asteroid you picked, or the place at these coordinates. What do you want to dig into?",
         ].join("\n")
       : [
           "Hey — Mitigation+ is online.",
           "",
-          "Run a simulation for impact-specific advice, or just ask how the project works, which NASA services we use, or what the limits are.",
+          "Pick an asteroid, set coordinates, run a simulation, then ask me about the results, the place, or how the engines work.",
         ].join("\n");
     setMessages([{ role: "assistant", content: intro, source: "intro" }]);
   }, [simulation, surface]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -159,7 +213,7 @@ export default function RiskMitigationChat({
           ...prev,
           {
             role: "assistant",
-            content: localReply(text, surface, priorities),
+            content: localReply(text, surface, priorities, context),
             source: "client",
           },
         ]);
@@ -169,7 +223,7 @@ export default function RiskMitigationChat({
         ...prev,
         {
           role: "assistant",
-          content: localReply(text, surface, priorities),
+          content: localReply(text, surface, priorities, context),
           source: "client",
         },
       ]);
@@ -195,7 +249,7 @@ export default function RiskMitigationChat({
             <div>
               <strong>Mitigation and more</strong>
               <span className="risk-chat-sub">
-                Plain-language help · {surface}
+                Results · place · asteroid · {surface}
               </span>
             </div>
             <button
@@ -223,6 +277,15 @@ export default function RiskMitigationChat({
           </div>
 
           <div className="risk-quick">
+            <button type="button" onClick={() => send("Summarise this simulation and the AI panel")}>
+              This run
+            </button>
+            <button type="button" onClick={() => send("Where is this impact location?")}>
+              Place
+            </button>
+            <button type="button" onClick={() => send("Tell me about the selected asteroid")}>
+              Asteroid
+            </button>
             <button
               type="button"
               onClick={() => send("Why didn’t Meteor Madness calculate a surface crater?")}
@@ -231,15 +294,6 @@ export default function RiskMitigationChat({
             </button>
             <button type="button" onClick={() => send("What are the immediate priorities?")}>
               Priorities
-            </button>
-            <button type="button" onClick={() => send("How does this project work?")}>
-              Project
-            </button>
-            <button type="button" onClick={() => send("Which NASA services does this use?")}>
-              NASA
-            </button>
-            <button type="button" onClick={() => send("What are the project limitations?")}>
-              Limits
             </button>
           </div>
 
@@ -253,7 +307,7 @@ export default function RiskMitigationChat({
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask anything — crater, engines, NASA…"
+              placeholder="Ask about results, place, asteroid…"
               disabled={busy}
             />
             <button type="submit" disabled={busy || !input.trim()}>
@@ -266,43 +320,67 @@ export default function RiskMitigationChat({
   );
 }
 
-function localReply(message, surface, priorities) {
+function localReply(message, surface, priorities, context) {
   const lower = message.toLowerCase();
+  const env = context.environment || {};
+  const branch = context.impact_branch || {};
+  const asteroid = context.asteroid || {};
+  const analyst = context.analyst || {};
+
+  if (lower.includes("asteroid") || lower.includes("selected")) {
+    if (!asteroid.name && !asteroid.id) {
+      return "No asteroid is selected yet — pick one from the NASA list first.";
+    }
+    return [
+      `You're looking at ${asteroid.name || asteroid.id}.`,
+      asteroid.diameter_km != null
+        ? `Diameter about ${Number(asteroid.diameter_km).toFixed(4)} km.`
+        : null,
+      asteroid.hazardous ? "It's flagged as potentially hazardous (PHA)." : "Not flagged as a PHA in this feed.",
+      asteroid.miss_distance_km != null
+        ? `Miss distance about ${Number(asteroid.miss_distance_km).toLocaleString()} km.`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
   if (
-    lower.includes("crater") ||
-    lower.includes("didn") ||
-    lower.includes("why")
+    lower.includes("place") ||
+    lower.includes("where") ||
+    lower.includes("location")
+  ) {
+    const lat = context.latitude;
+    const lon = context.longitude;
+    return `Coordinates are ${lat}, ${lon}. The backend reverse-geocoder names the place when the mitigation API is up — restart uvicorn after pull if needed.`;
+  }
+
+  if (
+    lower.includes("crater") &&
+    (lower.includes("didn") || lower.includes("why") || surface !== "land")
   ) {
     if (surface === "ocean") {
       return (
         "Because the selected impact environment was ocean. The land-crater model was " +
-        "intentionally not applied; the simulation instead used the ocean branch for " +
-        "water displacement, tsunami screening and seafloor interaction."
-      );
-    }
-    if (surface === "unknown") {
-      return (
-        "Because we couldn't confirm land vs ocean from the elevation service. " +
-        "When surface is unknown, Meteor Madness refuses to invent a crater or tsunami."
+        "intentionally not applied; the simulation used the ocean branch instead."
       );
     }
   }
-  if (lower.includes("nasa")) {
-    return (
-      "We call NASA NeoWs for the asteroid feed and GEBCO (via OpenTopoData) for " +
-      "elevation/bathymetry. Other NASA services like Horizons or Sentry are useful " +
-      "context, but they're not wired into this MVP yet."
-    );
+
+  if (lower.includes("summar") || lower.includes("panel") || lower.includes("run")) {
+    const crater = branch.crater?.final_diameter_m;
+    return [
+      `Environment: ${surface} (source ${env.terrain_source || env.source || "n/a"}).`,
+      `Branch: ${branch.branch || surface}.`,
+      crater != null ? `Crater diameter ~${(crater / 1000).toFixed(2)} km.` : null,
+      analyst.summary || null,
+    ]
+      .filter(Boolean)
+      .join(" ");
   }
-  if (lower.includes("limit")) {
-    return (
-      "Honestly: this is screening, not hydrocode. Strength and ablation are uncertain, " +
-      "tsunami and crater numbers are first-order, and with no Earth data we simply " +
-      "won't invent environment-specific effects."
-    );
-  }
+
   return [
-    `This run is sitting on **${surface}**. If I had to move first, it'd be:`,
+    `This run is on **${surface}**. First moves I'd consider:`,
     ...priorities.map((p, i) => `${i + 1}. ${p}`),
   ].join("\n");
 }
