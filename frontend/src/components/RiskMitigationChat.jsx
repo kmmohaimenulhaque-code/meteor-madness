@@ -37,7 +37,7 @@ function defaultPriorities(surface) {
   ];
 }
 
-function buildContext({ environment, impactBranch, analyst, simulationData }) {
+function buildContext({ environment, impactBranch, analyst, simulationData, asteroid }) {
   const surface =
     environment?.surface || environment?.surface_type || "unknown";
   const energyJ =
@@ -55,6 +55,15 @@ function buildContext({ environment, impactBranch, analyst, simulationData }) {
     bathymetry_m: environment?.bathymetry_m,
     terrain_source: environment?.terrain_source || environment?.source,
     data_status: environment?.data_status,
+    asteroid: asteroid
+      ? {
+          id: asteroid.id,
+          name: asteroid.name,
+          diameter_km: asteroid.diameter_km,
+          hazardous: asteroid.hazardous,
+          miss_distance_km: asteroid.miss_distance_km,
+        }
+      : null,
   };
 }
 
@@ -64,6 +73,7 @@ export default function RiskMitigationChat({
   impactBranch,
   analyst,
   simulationData,
+  asteroid,
 }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -77,30 +87,35 @@ export default function RiskMitigationChat({
         impactBranch,
         analyst,
         simulationData,
+        asteroid,
       }),
-    [environment, impactBranch, analyst, simulationData]
+    [environment, impactBranch, analyst, simulationData, asteroid]
   );
 
   const surface = context.surface || "unknown";
   const priorities = defaultPriorities(surface);
-
   const [messages, setMessages] = useState([]);
 
-  // Seed chat when simulation context changes
   useEffect(() => {
-    if (!simulation) {
-      setMessages([]);
-      return;
-    }
-    const intro = [
-      `🛡️ Risk Mitigation ready for **${surface}** impact.`,
-      "",
-      "Immediate priorities:",
-      ...priorities.map((p, i) => `${i + 1}. ${p}`),
-      "",
-      "Ask about evacuation, exclusion zones, tsunami response, or infrastructure protection.",
-    ].join("\n");
-    setMessages([{ role: "assistant", content: intro, source: "priorities" }]);
+    const intro = simulation
+      ? [
+          `Mitigation+ ready · surface **${surface}**.`,
+          "",
+          "Immediate priorities:",
+          ...priorities.map((p, i) => `${i + 1}. ${p}`),
+          "",
+          "Ask about engines, NASA services, limitations, or mitigation steps.",
+        ].join("\n")
+      : [
+          "Mitigation+ assistant online.",
+          "",
+          "Run a simulation for impact-specific advice, or ask:",
+          "• How does this project work?",
+          "• Which NASA services are used?",
+          "• What are the limitations?",
+          "• How does the environment engine work?",
+        ].join("\n");
+    setMessages([{ role: "assistant", content: intro, source: "intro" }]);
   }, [simulation, surface]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -109,8 +124,8 @@ export default function RiskMitigationChat({
     }
   }, [messages, open]);
 
-  async function send() {
-    const text = input.trim();
+  async function send(prefill) {
+    const text = (prefill ?? input).trim();
     if (!text || busy) return;
 
     const nextHistory = [...messages, { role: "user", content: text }];
@@ -143,18 +158,23 @@ export default function RiskMitigationChat({
           },
         ]);
       } else {
-        // Client fallback
-        const local = localReply(text, surface, priorities);
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: local, source: "client" },
+          {
+            role: "assistant",
+            content: localReply(text, surface, priorities),
+            source: "client",
+          },
         ]);
       }
     } catch {
-      const local = localReply(text, surface, priorities);
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: local, source: "client" },
+        {
+          role: "assistant",
+          content: localReply(text, surface, priorities),
+          source: "client",
+        },
       ]);
     } finally {
       setBusy(false);
@@ -167,21 +187,25 @@ export default function RiskMitigationChat({
         type="button"
         className="risk-fab"
         onClick={() => setOpen((v) => !v)}
-        aria-label="Risk Mitigation"
+        aria-label="Mitigation and more"
       >
-        🛡️ Risk Mitigation
+        Mitigation and more
       </button>
 
       {open && (
-        <div className="risk-chat-panel" role="dialog" aria-label="Risk Mitigation chat">
+        <div className="risk-chat-panel" role="dialog" aria-label="Mitigation and more">
           <header className="risk-chat-header">
             <div>
-              <strong>Risk Mitigation</strong>
+              <strong>Mitigation and more</strong>
               <span className="risk-chat-sub">
-                Planetary defence · {surface}
+                Defence · engines · NASA · limits · {surface}
               </span>
             </div>
-            <button type="button" className="risk-chat-close" onClick={() => setOpen(false)}>
+            <button
+              type="button"
+              className="risk-chat-close"
+              onClick={() => setOpen(false)}
+            >
               ✕
             </button>
           </header>
@@ -202,14 +226,20 @@ export default function RiskMitigationChat({
           </div>
 
           <div className="risk-quick">
-            <button type="button" onClick={() => setInput("What are the immediate priorities?")}>
-              Immediate priorities
+            <button type="button" onClick={() => send("What are the immediate priorities?")}>
+              Priorities
             </button>
-            <button type="button" onClick={() => setInput("How should we evacuate?")}>
-              Evacuation
+            <button type="button" onClick={() => send("How does this project work?")}>
+              Project
             </button>
-            <button type="button" onClick={() => setInput("Tsunami response steps?")}>
-              Tsunami
+            <button type="button" onClick={() => send("Which NASA services does this use?")}>
+              NASA
+            </button>
+            <button type="button" onClick={() => send("Explain the working engines")}>
+              Engines
+            </button>
+            <button type="button" onClick={() => send("What are the project limitations?")}>
+              Limits
             </button>
           </div>
 
@@ -223,7 +253,7 @@ export default function RiskMitigationChat({
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask about mitigation…"
+              placeholder="Ask mitigation, engines, NASA, limits…"
               disabled={busy}
             />
             <button type="submit" disabled={busy || !input.trim()}>
@@ -238,21 +268,30 @@ export default function RiskMitigationChat({
 
 function localReply(message, surface, priorities) {
   const lower = message.toLowerCase();
-  if (
-    lower.includes("priorit") ||
-    lower.includes("immediate") ||
-    lower.includes("mitigat")
-  ) {
+  if (lower.includes("nasa")) {
     return [
-      `Immediate priorities for ${surface}:`,
-      ...priorities.map((p, i) => `${i + 1}. ${p}`),
-      "",
-      "Educational screening guidance only.",
+      "Wired: NASA NeoWs (asteroids) + OpenTopoData GEBCO (elevation/bathymetry).",
+      "Reference only: JPL Horizons, CNEOS Sentry/Fireballs, Earthdata.",
+      "NeoWs needs NASA_API_KEY from https://api.nasa.gov/",
+    ].join("\n");
+  }
+  if (lower.includes("limit")) {
+    return [
+      "Key limitations:",
+      "• RK4 entry screening ≠ full hydrocode",
+      "• Uncertain strength/density/ablation",
+      "• Tsunami/crater are screening estimates",
+      "• No data ⇒ no invented environment physics",
+    ].join("\n");
+  }
+  if (lower.includes("engine") || lower.includes("project") || lower.includes("work")) {
+    return [
+      "Pipeline: NASA → entry RK4 → GEBCO environment → land/ocean/ice branch → report → AI.",
+      "Engines: solver, location_engine, impact_environment, consequences, tsunami, ai_analyst.",
     ].join("\n");
   }
   return [
-    `Context: surface=${surface}.`,
-    "Immediate priorities:",
-    ...priorities.map((p) => `• ${p}`),
+    `Surface=${surface}. Immediate priorities:`,
+    ...priorities.map((p, i) => `${i + 1}. ${p}`),
   ].join("\n");
 }

@@ -1,8 +1,9 @@
 """
-Risk Mitigation interactive AI.
+Mitigation+ interactive AI.
 
-Uses simulation context. Gemini when GEMINI_API_KEY is set;
-otherwise structured planetary-defence priorities by environment class.
+Answers planetary-defence mitigation questions, explains project engines,
+NASA services in use vs reference-only, and limitations — using simulation
+context + project knowledge. Gemini when GEMINI_API_KEY is set.
 """
 from __future__ import annotations
 
@@ -11,6 +12,14 @@ import os
 from typing import Any
 
 import httpx
+
+from physics.project_knowledge import (
+    ENGINES,
+    LIMITATIONS,
+    NASA_SERVICES,
+    PROJECT_OVERVIEW,
+    knowledge_bundle,
+)
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_API_URL = (
@@ -48,10 +57,59 @@ def immediate_priorities(surface: str) -> list[str]:
     return [
         "Environment class is unknown — do not invent crater or tsunami actions.",
         "Re-run environment lookup (GEBCO) or set an explicit surface_hint.",
-        "Focus on public information hygiene and uncertainty communication.",
+        "Focus on uncertainty communication and public information hygiene.",
         "Escalate only with observed Earth-environment data.",
         "Keep entry-physics results separate from environment-specific advice.",
     ]
+
+
+def _explain_engines() -> str:
+    lines = ["Working engines in this branch:", ""]
+    for key, meta in ENGINES.items():
+        lines.append(f"• **{key}** (`{meta.get('module')}`)")
+        lines.append(f"  {meta.get('role')}")
+        if meta.get("rule"):
+            lines.append(f"  Rule: {meta['rule']}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def _explain_nasa() -> str:
+    lines = [
+        "NASA / Earth-data services relevant to Meteor Madness:",
+        "",
+        "**Wired into this project:**",
+    ]
+    for key, meta in NASA_SERVICES.items():
+        if meta.get("used_in_project"):
+            lines.append(
+                f"• {meta['name']}: {meta['purpose']} "
+                f"({meta.get('url')})"
+            )
+    lines.append("")
+    lines.append("**Reference / not yet wired (awareness only):**")
+    for key, meta in NASA_SERVICES.items():
+        if not meta.get("used_in_project"):
+            lines.append(
+                f"• {meta['name']}: {meta['purpose']}"
+                + (f" — {meta['note']}" if meta.get("note") else "")
+            )
+    lines.append("")
+    lines.append(
+        "NASA Open APIs hub: https://api.nasa.gov/ — NeoWs uses NASA_API_KEY."
+    )
+    return "\n".join(lines)
+
+
+def _explain_limitations() -> str:
+    lines = ["Project limitations (be honest with judges and users):", ""]
+    for i, item in enumerate(LIMITATIONS, 1):
+        lines.append(f"{i}. {item}")
+    return "\n".join(lines)
+
+
+def _explain_project() -> str:
+    return PROJECT_OVERVIEW.strip() + "\n\n" + _explain_engines()
 
 
 def _rule_reply(message: str, context: dict[str, Any]) -> str:
@@ -63,13 +121,34 @@ def _rule_reply(message: str, context: dict[str, Any]) -> str:
     priorities = immediate_priorities(surface)
     branch = context.get("physics_branch") or surface
     energy_mt = context.get("impact_energy_mt")
-
     lower = (message or "").lower()
+
+    if any(
+        k in lower
+        for k in (
+            "how does", "how do", "explain project", "what is this",
+            "architecture", "pipeline", "source code", "codebase", "engine",
+        )
+    ):
+        if "nasa" in lower:
+            return _explain_nasa()
+        if "limit" in lower:
+            return _explain_limitations()
+        if any(k in lower for k in ("engine", "solver", "gebco", "environment", "tsunami", "entry")):
+            return _explain_engines()
+        return _explain_project()
+
+    if "nasa" in lower or "neows" in lower or "api.nasa" in lower:
+        return _explain_nasa()
+
+    if "limit" in lower or "uncertain" in lower or "disclaimer" in lower:
+        return _explain_limitations()
+
     if any(k in lower for k in ("priorit", "immediate", "mitigat", "evacuat", "what should")):
         lines = [
-            f"Immediate priorities for **{surface}** impact "
+            f"Immediate priorities for **{surface}** "
             f"(branch={branch}"
-            + (f", ~{energy_mt} Mt" if energy_mt is not None else "")
+            + (f", ~{float(energy_mt):.3g} Mt" if energy_mt is not None else "")
             + "):",
             "",
         ]
@@ -77,38 +156,45 @@ def _rule_reply(message: str, context: dict[str, Any]) -> str:
             lines.append(f"{i}. {item}")
         lines.append("")
         lines.append(
-            "This is educational planetary-defence screening guidance, "
-            "not an operational emergency plan."
+            "Educational planetary-defence screening only — not an operational emergency plan."
         )
         return "\n".join(lines)
 
     if "tsunami" in lower:
         if surface != "ocean":
             return (
-                "Tsunami mitigation applies only when the environment class is "
-                "observed ocean. Current surface is "
-                f"**{surface}** — tsunami actions are not activated."
+                "Tsunami mitigation applies only when environment class is observed **ocean**. "
+                f"Current surface is **{surface}** — tsunami actions are not activated.\n\n"
+                + _explain_limitations()
             )
-        return (
-            "Ocean-impact tsunami screening priorities:\n"
-            + "\n".join(f"• {p}" for p in priorities)
+        return "Ocean-impact tsunami screening priorities:\n" + "\n".join(
+            f"• {p}" for p in priorities
         )
 
     if any(k in lower for k in ("crater", "blast", "seismic", "exclusion")):
         if surface != "land":
             return (
-                "Land impact actions (exclusion zone, blast/thermal/seismic) "
-                f"apply only on the **land** branch. Current surface is **{surface}**."
+                "Land impact actions (exclusion zone, blast/thermal/seismic) apply only on the "
+                f"**land** branch. Current surface is **{surface}**."
             )
+        return "Land-impact mitigation priorities:\n" + "\n".join(
+            f"• {p}" for p in priorities
+        )
+
+    if "unknown" in lower or "no data" in lower or "refuse" in lower:
         return (
-            "Land-impact mitigation priorities:\n"
-            + "\n".join(f"• {p}" for p in priorities)
+            "If GEBCO/OpenTopoData fails, surface=unknown, confidence=0, "
+            "physics_branch=undetermined. The simulator refuses to manufacture crater or tsunami.\n\n"
+            + _explain_limitations()
         )
 
     return (
-        f"Planetary-defence context: surface=**{surface}**, branch=**{branch}**.\n\n"
-        "Ask about immediate priorities, evacuation, tsunami (ocean), "
-        "or exclusion zones (land).\n\n"
+        f"Mitigation+ context: surface=**{surface}**, branch=**{branch}**.\n\n"
+        "You can ask about:\n"
+        "• Immediate mitigation priorities\n"
+        "• How entry / environment / tsunami engines work\n"
+        "• NASA services (NeoWs, GEBCO, reference CNEOS/Horizons)\n"
+        "• Project limitations\n\n"
         "Default immediate priorities:\n"
         + "\n".join(f"• {p}" for p in priorities)
     )
@@ -120,30 +206,33 @@ def _gemini_reply(
     history: list[dict[str, str]],
     api_key: str,
 ) -> str | None:
+    knowledge = knowledge_bundle()
     system = (
-        "You are a planetary-defence Risk Mitigation assistant for a NASA Space Apps "
-        "educational simulator (Meteor Madness). Answer primarily about risk mitigation, "
-        "civil protection priorities, and screening-level planetary defence. "
-        "Use the simulation context. Do not invent precise casualty counts. "
+        "You are Mitigation+ for Meteor Madness (NASA Space Apps educational demo). "
+        "Be interactive, clear, and honest. You help with: (1) planetary-defence mitigation, "
+        "(2) explaining this project's architecture and engines from the knowledge base, "
+        "(3) which NASA services are wired vs reference-only, (4) limitations. "
+        "Use simulation context. Never invent casualty counts. "
         "If surface is unknown, refuse environment-specific crater/tsunami actions. "
-        "Be concise and actionable."
+        "You do not have live write access to NASA systems; you explain and advise only."
     )
     hist_txt = "\n".join(
-        f"{m.get('role', 'user')}: {m.get('content', '')}" for m in history[-6:]
+        f"{m.get('role', 'user')}: {m.get('content', '')}" for m in history[-8:]
     )
     prompt = (
-        f"{system}\n\nSimulation context:\n{json.dumps(context, indent=2)}\n\n"
+        f"{system}\n\nProject knowledge:\n{json.dumps(knowledge, indent=2)}\n\n"
+        f"Simulation context:\n{json.dumps(context, indent=2)}\n\n"
         f"Recent chat:\n{hist_txt}\n\nUser: {message}\n\nAssistant:"
     )
     body = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 1024,
+            "temperature": 0.35,
+            "maxOutputTokens": 1400,
         },
     }
     try:
-        with httpx.Client(timeout=25.0) as client:
+        with httpx.Client(timeout=30.0) as client:
             response = client.post(
                 GEMINI_API_URL,
                 headers={
@@ -196,4 +285,11 @@ def answer_mitigation(
         "source": source,
         "immediate_priorities": immediate_priorities(surface),
         "surface": surface,
+        "knowledge": {
+            "engines": list(ENGINES.keys()),
+            "nasa_wired": [
+                k for k, v in NASA_SERVICES.items() if v.get("used_in_project")
+            ],
+            "limitations_count": len(LIMITATIONS),
+        },
     }
