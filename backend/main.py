@@ -16,6 +16,7 @@ from physics.consequences import (
     consequences_to_dict,
 )
 from physics.enrichment import enrich_payload
+from mitigation_routes import router as mitigation_router
 from physics.models import (
     AsteroidParameters,
     EntryConditions,
@@ -49,6 +50,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(mitigation_router)
 
 
 # ============================================================
