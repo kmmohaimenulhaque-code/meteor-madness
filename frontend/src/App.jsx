@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import "./analyst.css";
+import "./asteroid-picker.css";
 import ConsequencesPanel from "./components/ConsequencesPanel";
 import EarthImpactMap from "./components/EarthImpactMap";
 import AnalystPanel from "./components/AnalystPanel";
@@ -94,7 +95,6 @@ function App() {
   const isOcean = branch === "ocean";
   const isIce = branch === "ice";
 
-  // Hierarchical rule: legacy land consequences ONLY on land branch
   const landConsequences =
     isLand
       ? unifiedReport?.land_consequences ??
@@ -330,7 +330,6 @@ function App() {
               </div>
             </section>
 
-            {/* LAND only — never show crater/Mw on ocean/ice/unknown */}
             {isLand && landConsequences && (
               <ConsequencesPanel consequences={landConsequences} />
             )}
