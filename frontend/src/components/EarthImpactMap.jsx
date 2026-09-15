@@ -158,33 +158,90 @@ function projectPoint(lat, lon) {
 
 function buildSatelliteUrl(latitude, longitude) {
   const latSpan = DEFAULT_MAP_SPAN_DEG;
+
+  const cosLat = Math.cos(
+    (latitude * Math.PI) / 180
+  );
+
   const lonSpan =
     DEFAULT_MAP_SPAN_DEG /
-    Math.max(Math.cos((latitude * Math.PI) / 180), 0.25);
+    Math.max(Math.abs(cosLat), 0.25);
 
-  const minLat = clamp(latitude - latSpan / 2, -89, 89);
-  const maxLat = clamp(latitude + latSpan / 2, -89, 89);
+  const minLat = clamp(
+    latitude - latSpan / 2,
+    -89,
+    89
+  );
 
-  const minLon = longitude - lonSpan / 2;
-  const maxLon = longitude + lonSpan / 2;
+  const maxLat = clamp(
+    latitude + latSpan / 2,
+    -89,
+    89
+  );
+
+  // Keep longitude inside the valid EPSG:4326 range.
+  const minLon = normaliseLongitude(
+    longitude - lonSpan / 2
+  );
+
+  const maxLon = normaliseLongitude(
+    longitude + lonSpan / 2
+  );
+
+  // GIBS imagery is time-dependent.
+  // Use yesterday because the latest complete MODIS
+  // composite may not yet be available for today.
+  const date = new Date();
+
+  date.setUTCDate(
+    date.getUTCDate() - 1
+  );
+
+  const year = date.getUTCFullYear();
+
+  const month = String(
+    date.getUTCMonth() + 1
+  ).padStart(2, "0");
+
+  const day = String(
+    date.getUTCDate()
+  ).padStart(2, "0");
+
+  const imageDate =
+    `${year}-${month}-${day}`;
 
   const params = new URLSearchParams({
     SERVICE: "WMS",
     VERSION: "1.1.1",
     REQUEST: "GetMap",
-    LAYERS: SATELLITE_LAYER,
+
+    LAYERS:
+      "MODIS_Terra_CorrectedReflectance_TrueColor",
+
     STYLES: "",
+
     SRS: "EPSG:4326",
-    BBOX: `${minLon},${minLat},${maxLon},${maxLat}`,
+
+    BBOX:
+      `${minLon},${minLat},${maxLon},${maxLat}`,
+
     WIDTH: "1000",
     HEIGHT: "700",
+
     FORMAT: "image/jpeg",
+
     TRANSPARENT: "FALSE",
-    VERSION_: "1.1.1",
+
+    TIME: imageDate,
   });
 
-  return `${NASA_GIBS_WMS}?${params.toString()}`;
+  return (
+    `${NASA_GIBS_WMS}?${params.toString()}`
+  );
 }
+
+
+
 
 export default function EarthImpactMap({
   trajectory,
@@ -863,21 +920,35 @@ export default function EarthImpactMap({
 
             {/* Actual NASA image */}
             {satelliteUrl && !satelliteError && (
-              <img
-                src={satelliteUrl}
-                alt="NASA GIBS satellite imagery around the modelled impact location"
-                className={`satellite-image ${
-                  satelliteLoaded
-                    ? "loaded"
-                    : "loading"
-                }`}
-                onLoad={() =>
-                  setSatelliteLoaded(true)
-                }
-                onError={() =>
-                  setSatelliteError(true)
-                }
-              />
+              <img src={satelliteUrl}
+  alt="NASA GIBS satellite imagery around the modelled impact location"
+  className={`satellite-image ${
+    satelliteLoaded ? "loaded" : "loading"
+  }`}
+  onLoad={() => {
+    console.log(
+      "NASA GIBS satellite image loaded:",
+      satelliteUrl
+    );
+
+    setSatelliteLoaded(true);
+    setSatelliteError(false);
+  }}
+  onError={(event) => {
+    console.error(
+      "NASA GIBS satellite image failed:",
+      satelliteUrl,
+      event
+    );
+
+    setSatelliteLoaded(false);
+    setSatelliteError(true);
+  }}
+/>
+               
+
+
+
             )}
 
             {/* Fallback */}
