@@ -1,6 +1,20 @@
-export default function AnalystPanel({ analyst, terrain, tsunami }) {
+export default function AnalystPanel({ analyst, terrain, tsunami, hasSimulation }) {
+  // Show panel after a simulation even if enrichment is missing (helps debug)
   if (!analyst && !terrain && !tsunami) {
-    return null;
+    if (!hasSimulation) {
+      return null;
+    }
+    return (
+      <section className="analyst-panel">
+        <h3>AI Analyst / Impact Environment</h3>
+        <p className="muted">
+          No analyst payload in the API response. Ensure the backend patch is
+          applied: <code>python backend/apply_next_frontier_patch.py</code> and
+          restart uvicorn. Optional: set <code>GEMINI_API_KEY</code> in{" "}
+          <code>backend/.env</code>.
+        </p>
+      </section>
+    );
   }
 
   const risk = analyst?.risk_level ?? "unknown";
@@ -46,7 +60,8 @@ export default function AnalystPanel({ analyst, terrain, tsunami }) {
                 {Number(tsunami.estimated_source_amplitude_m).toFixed(1)} m
               </strong>
               {" · "}
-              energy ≈ {Number(tsunami.impact_energy_megatons_tnt).toExponential(2)} Mt
+              energy ≈{" "}
+              {Number(tsunami.impact_energy_megatons_tnt).toExponential(2)} Mt
             </p>
           ) : (
             <p className="muted">Not applicable (land or negligible energy)</p>
