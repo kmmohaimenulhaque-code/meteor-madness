@@ -1,8 +1,9 @@
 """
-Mitigation+ — mission analyst trained on the authoritative system prompt.
+Mitigation+ mission analyst.
 
-Physics calculates. Environment contextualises. Branches gate consequences.
-This module explains results from the simulation payload; it never overrides them.
+Gemini 3.8 Flash via google-genai SDK with proper multi-turn conversation state.
+calc_explainers + project_knowledge are GROUNDING CONTEXT for the current turn
+(not model training / fine-tuning).
 """
 from __future__ import annotations
 
@@ -11,9 +12,12 @@ import os
 import re
 from typing import Any, Literal
 
-import httpx
-
-from physics.calc_explainers import format_explainer, match_explainer
+from physics.calc_explainers import EXPLAINERS, format_explainer, match_explainer
+from physics.gemini_client import (
+    GEMINI_MODEL,
+    build_chat_contents,
+    generate_content,
+)
 from physics.mitigation_system_prompt import (
     EXAMPLE_ENGINES,
     EXAMPLE_LIMITATIONS,
@@ -26,12 +30,6 @@ from physics.project_knowledge import (
     NASA_SERVICES,
     PROJECT_OVERVIEW,
     knowledge_bundle,
-)
-
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
-GEMINI_API_URL = (
-    f"https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{GEMINI_MODEL}:generateContent"
 )
 
 Tone = Literal[
@@ -190,8 +188,38 @@ def _enrich_place(context: dict[str, Any]) -> dict[str, Any]:
     return enriched
 
 
+def _build_grounding(
+    message: str,
+    context: dict[str, Any],
+    tone: Tone,
+) -> dict[str, Any]:
+    """
+    Runtime grounding packet for this turn.
+
+    project_knowledge + calc_explainers are CONTEXT, not training data.
+    """
+    matched = match_explainer(message)
+    return {
+        "note": (
+            "The following is grounding/context for this request only. "
+            "It is not model training. Prefer CURRENT SIMULATION PAYLOAD numbers."
+        ),
+        "tone": tone,
+        "tone_guidance": tone_instruction(tone),
+        "project_knowledge": knowledge_bundle(),
+        "calc_explainers_index": {
+            key: {
+                "title": meta.get("title"),
+                "files": meta.get("files"),
+            }
+            for key, meta in EXPLAINERS.items()
+        },
+        "matched_calc_explainer": matched,
+        "simulation_payload": context,
+    }
+
+
 def _panel_summary(context: dict[str, Any]) -> str:
-    """Explain payload only — never invent numbers."""
     env = context.get("environment") or {}
     branch = context.get("impact_branch") or {}
     analyst = context.get("analyst") or {}
@@ -247,7 +275,6 @@ def _panel_summary(context: dict[str, Any]) -> str:
         + "."
     )
 
-    # Only describe consequence numbers that exist on the active branch payload
     if branch_name == "land":
         crater = (branch.get("crater") or {}).get("final_diameter_m")
         blast = (branch.get("blast") or {}).get("radius_m")
@@ -262,7 +289,9 @@ def _panel_summary(context: dict[str, Any]) -> str:
         if bits:
             lines.append("Land branch values in payload: " + "; ".join(bits) + ".")
         else:
-            lines.append("Land branch is active but crater/blast/thermal fields are not populated in this payload.")
+            lines.append(
+                "Land branch is active but crater/blast/thermal fields are not populated in this payload."
+            )
     elif branch_name == "ocean":
         lines.append(
             "Ocean branch is active — terrestrial crater/blast/thermal are not applicable consequences here."
@@ -515,51 +544,39 @@ def _gemini_reply(
     api_key: str,
     tone: Tone,
 ) -> str | None:
-    knowledge = knowledge_bundle()
-    explainer = match_explainer(message)
-    hist_txt = "\n".join(
-        f"{m.get('role', 'user')}: {m.get('content', '')}" for m in history[-10:]
+    """
+    Gemini 3.8 Flash with multi-turn conversation state.
+
+    Grounding (project_knowledge, calc_explainers, simulation payload) is
+    attached to the *current user turn* as context — not as training.
+    """
+    grounding = _build_grounding(message, context, tone)
+    user_turn = (
+        "GROUNDING CONTEXT FOR THIS TURN (not training; runtime reference only):\n"
+        f"{json.dumps(grounding, indent=2)}\n\n"
+        f"USER QUESTION:\n{message}"
     )
-    prompt = (
-        f"{MITIGATION_SYSTEM_PROMPT}\n\n"
-        f"Tone mode: {tone}\nTone guidance: {tone_instruction(tone)}\n\n"
-        f"Matched calculation explainer (cite only if relevant; do not invent files):\n"
-        f"{json.dumps(explainer, indent=2) if explainer else 'null'}\n\n"
-        f"Project architecture / engines / NASA metadata:\n"
-        f"{json.dumps(knowledge, indent=2)}\n\n"
-        f"CURRENT SIMULATION PAYLOAD (authoritative — do not invent or alter numbers):\n"
-        f"{json.dumps(context, indent=2)}\n\n"
-        f"Recent chat:\n{hist_txt}\n\n"
-        f"User: {message}\n\nAssistant:"
-    )
-    body = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.35 if tone != "playful" else 0.45,
-            "maxOutputTokens": 1800,
-        },
-    }
+
+    # history for SDK should exclude the message we just appended as user_turn
+    prior = [
+        {"role": m.get("role", "user"), "content": m.get("content", "")}
+        for m in history[:-1]
+    ]
+
     try:
-        with httpx.Client(timeout=35.0) as client:
-            response = client.post(
-                GEMINI_API_URL,
-                headers={
-                    "x-goog-api-key": api_key,
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            )
-            response.raise_for_status()
-            data = response.json()
-        parts = (
-            data.get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [])
-        )
-        text = "".join(str(p.get("text", "")) for p in parts).strip()
-        return text or None
+        contents = build_chat_contents(prior, user_turn)
     except Exception:
-        return None
+        # SDK types unavailable — single-string contents fallback
+        contents = user_turn
+
+    return generate_content(
+        contents=contents,
+        api_key=api_key,
+        system_instruction=MITIGATION_SYSTEM_PROMPT,
+        max_output_tokens=2000,
+        thinking_level="medium",
+        model=GEMINI_MODEL,
+    )
 
 
 def answer_mitigation(
@@ -588,12 +605,18 @@ def answer_mitigation(
         "status": "ok",
         "reply": reply,
         "source": source,
+        "model": GEMINI_MODEL if source == "gemini" else None,
         "tone": tone,
         "role": "mission_analyst",
         "immediate_priorities": immediate_priorities(surface),
         "surface": surface,
         "place": context.get("place"),
         "matched_explainer": (match_explainer(message) or {}).get("title"),
+        "grounding": {
+            "project_knowledge": True,
+            "calc_explainers": True,
+            "mode": "runtime_context_not_training",
+        },
         "knowledge": {
             "engines": list(ENGINES.keys()),
             "nasa_wired": [
