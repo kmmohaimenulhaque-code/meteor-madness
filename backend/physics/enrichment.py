@@ -33,33 +33,43 @@ def enrich_payload(
     if not isinstance(consequences, dict):
         consequences = {}
 
+    # If environment is unknown, strip land-specific consequences so we
+    # do not present manufactured crater/blast numbers as environment truth.
+    consequences_for_branch = consequences
+    if environment.surface == "unknown":
+        consequences_for_branch = None
+
     resolved = resolve_impact_environment(
         environment=environment,
         impact_energy_J=energy_for_secondary,
-        consequences=consequences,
+        consequences=consequences_for_branch,
     )
 
     impact_branch = resolved["impact_branch"]
     env_dict = resolved["environment"]
 
-    # Tsunami convenience field (ocean branch only)
     tsunami = None
     if impact_branch.get("branch") == "ocean":
         tsunami = impact_branch.get("tsunami")
     else:
         tsunami = {
             "applicable": False,
+            "refused": impact_branch.get("branch") == "undetermined",
             "impact_energy_J": energy_for_secondary,
             "impact_energy_megatons_tnt": energy_for_secondary / 4.184e15,
             "estimated_source_amplitude_m": 0.0,
             "estimated_coastal_runup_indicator_m": 0.0,
-            "notes": ["Not applicable for this surface type."],
+            "notes": [
+                "Tsunami not computed: surface is not an observed ocean, "
+                "or environment data is unavailable."
+            ],
         }
 
     crater_diameter = None
-    largest = consequences.get("largest_crater") or consequences
-    if isinstance(largest, dict):
-        crater_diameter = largest.get("final_crater_diameter_m")
+    if environment.surface == "land" and isinstance(consequences, dict):
+        largest = consequences.get("largest_crater") or consequences
+        if isinstance(largest, dict):
+            crater_diameter = largest.get("final_crater_diameter_m")
 
     has_tsunami = bool(tsunami and tsunami.get("applicable"))
 
@@ -83,10 +93,8 @@ def enrich_payload(
     )
 
     return {
-        # Canonical new schema
         "environment": env_dict,
         "impact_branch": impact_branch,
-        # Back-compat for existing UI
         "terrain": env_dict,
         "tsunami": tsunami,
         "analyst": analyst.to_dict(),
