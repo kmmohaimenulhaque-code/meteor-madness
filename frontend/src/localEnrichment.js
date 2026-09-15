@@ -1,73 +1,53 @@
 /**
- * Client-side Next Frontier enrichment fallback.
- * Mirrors backend environment schema + impact branch.
+ * Client-side enrichment fallback.
+ * CRITICAL: No data = NO GUESS.
+ * Without a backend environment payload we mark surface unknown
+ * and refuse crater/tsunami manufacture.
  */
 
-function classifyEnvironment(lat, lon) {
-  const absLat = Math.abs(lat);
-
-  if (absLat >= 70) {
-    return {
-      coordinates: { latitude: lat, longitude: lon },
-      surface: "ice",
-      surface_confidence: 0.65,
-      elevation_m: absLat >= 75 ? 100 : 20,
-      bathymetry_m: null,
-      terrain_source: "polar_heuristic_v1",
-      material: { type: "ice", density_kg_m3: 917 },
-      data_status: "heuristic",
-      surface_type: "ice",
-      confidence: 0.65,
-      target_density_kg_m3: 917,
-      terrain_label: "Likely ice (polar heuristic)",
-      material_notes: "Client heuristic. Prefer backend Environment Engine.",
-    };
-  }
-
-  const likelyOcean =
-    (absLat < 60 && (lon < -80 || lon > 120) && absLat < 50) ||
-    (absLat < 55 && lon > -60 && lon < -10) ||
-    (absLat < 30 && lon > 40 && lon < 110);
-
-  if (likelyOcean) {
-    const depth = absLat < 40 ? 3500 : 2500;
-    return {
-      coordinates: { latitude: lat, longitude: lon },
-      surface: "ocean",
-      surface_confidence: 0.55,
-      elevation_m: -depth,
-      bathymetry_m: depth,
-      terrain_source: "GEBCO_placeholder_heuristic",
-      material: { type: "seawater", density_kg_m3: 1025 },
-      data_status: "heuristic",
-      surface_type: "ocean",
-      confidence: 0.55,
-      target_density_kg_m3: 1025,
-      terrain_label: "Likely ocean (coarse heuristic)",
-      material_notes: "Client heuristic. Prefer backend Environment Engine.",
-    };
-  }
-
+function unavailableEnvironment(lat, lon) {
   return {
     coordinates: { latitude: lat, longitude: lon },
-    surface: "land",
-    surface_confidence: 0.6,
-    elevation_m: 150,
+    surface: "unknown",
+    surface_confidence: 0.0,
+    confidence: 0.0,
+    elevation_m: null,
     bathymetry_m: null,
-    terrain_source: "land_heuristic_v1",
-    material: { type: "crystalline_crust", density_kg_m3: 2700 },
-    data_status: "heuristic",
-    surface_type: "land",
-    confidence: 0.6,
-    target_density_kg_m3: 2700,
-    terrain_label: "Likely land (default heuristic)",
-    material_notes: "Client heuristic. Prefer backend Environment Engine.",
+    terrain_source: "unavailable",
+    source: "unavailable",
+    material: null,
+    data_status: "unavailable",
+    physics_branch: "undetermined",
+    surface_type: "unknown",
+    target_density_kg_m3: null,
+    terrain_label: "Environment data unavailable (client has no DEM access)",
+    material_notes:
+      "Frontend cannot invent land/ocean. Use backend GEBCO lookup or surface_hint.",
+  };
+}
+
+function refusedBranch(energyJ) {
+  return {
+    branch: "undetermined",
+    physics_branch: "undetermined",
+    models_run: [],
+    refused: true,
+    reason:
+      "No observed environment data. Crater and tsunami calculations are refused.",
+    impact_energy_J: energyJ,
+    impact_energy_megatons_tnt: energyJ / 4.184e15,
+    crater: null,
+    tsunami: null,
   };
 }
 
 function resolveImpactBranch(environment, energyJ, consequences) {
-  const mt = energyJ / 4.184e15;
   const surface = environment.surface || environment.surface_type;
+  const mt = energyJ / 4.184e15;
+
+  if (surface === "unknown" || environment.physics_branch === "undetermined") {
+    return refusedBranch(energyJ);
+  }
 
   if (surface === "land") {
     const largest =
@@ -77,7 +57,9 @@ function resolveImpactBranch(environment, energyJ, consequences) {
       models_run: ["crater", "blast", "thermal"],
       crater: {
         final_diameter_m:
-          largest.final_crater_diameter_m ?? largest.transient_crater_diameter_m ?? null,
+          largest.final_crater_diameter_m ??
+          largest.transient_crater_diameter_m ??
+          null,
         status: "computed",
       },
       blast: {
@@ -98,13 +80,18 @@ function resolveImpactBranch(environment, energyJ, consequences) {
   }
 
   if (surface === "ocean") {
-    const depth = environment.bathymetry_m || 4000;
+    const depth = environment.bathymetry_m;
+    if (depth == null) {
+      return refusedBranch(energyJ);
+    }
     const amp = Math.max(0.1, Math.pow(Math.max(mt, 1e-6), 1 / 3) * 0.8);
     return {
       branch: "ocean",
       models_run: ["water_displacement", "tsunami_screening", "seafloor_effects"],
       water_displacement: {
-        estimated_volume_km3: Number((0.02 * Math.pow(Math.max(mt, 1e-9), 0.4)).toFixed(4)),
+        estimated_volume_km3: Number(
+          (0.02 * Math.pow(Math.max(mt, 1e-9), 0.4)).toFixed(4)
+        ),
         status: "screening",
       },
       tsunami: {
@@ -113,10 +100,11 @@ function resolveImpactBranch(environment, energyJ, consequences) {
         impact_energy_megatons_tnt: mt,
         estimated_source_amplitude_m: amp,
         estimated_coastal_runup_indicator_m: amp * 2.5,
-        notes: ["Client-side tsunami screening only."],
+        notes: ["Screening only; requires observed bathymetry."],
       },
       seafloor_effects: {
         water_depth_m: depth,
+        depth_status: "observed",
         estimated_crater_on_seafloor_m: Number(
           (80 * Math.pow(Math.max(mt, 1e-9), 0.25)).toFixed(1)
         ),
@@ -146,73 +134,35 @@ function resolveImpactBranch(environment, energyJ, consequences) {
     };
   }
 
-  return {
-    branch: "refused",
-    models_run: [],
-    reason: `Unknown surface: ${surface}`,
-    impact_energy_J: energyJ,
-    impact_energy_megatons_tnt: mt,
-  };
+  return refusedBranch(energyJ);
 }
 
-function ruleAnalyst({
-  outcome,
-  surface_type,
-  energyJ,
-  fragmentation,
-  terrainConfidence,
-  tsunami,
-  impactBranch,
-}) {
+function ruleAnalyst({ surface_type, energyJ, impactBranch }) {
   const mt = energyJ / 4.184e15;
-  let confidence = 0.75 * (terrainConfidence || 0.5);
-  if (mt > 1000) confidence *= 0.7;
-  confidence = Math.max(0.15, Math.min(0.95, confidence));
-
-  let risk = "low";
-  if (mt >= 100) risk = "extreme";
-  else if (mt >= 1) risk = "high";
-  else if (mt >= 0.01) risk = "moderate";
-
-  const label =
-    confidence >= 0.85
-      ? "High"
-      : confidence >= 0.65
-        ? "Moderate"
-        : confidence >= 0.4
-          ? "Low"
-          : "Very low";
-
-  let summary = `Surface=${surface_type}, branch=${impactBranch?.branch ?? "n/a"}, energy ~${mt.toExponential(2)} Mt.`;
-  if (surface_type === "ocean" && tsunami?.applicable) {
-    summary = `Ocean branch: tsunami screening ~${Number(
-      tsunami.estimated_source_amplitude_m
-    ).toFixed(1)} m source amplitude (uncertain).`;
-  } else if (surface_type === "ice") {
-    summary = `Ice branch: excavation / melt screening for ~${mt.toExponential(2)} Mt.`;
-  } else if (fragmentation) {
-    summary = `Land/airburst context with fragmentation. Energy ~${mt.toExponential(2)} Mt.`;
-  }
+  const refused = impactBranch?.branch === "undetermined";
 
   return {
-    confidence: Math.round(confidence * 1000) / 1000,
-    confidence_label: label,
-    risk_level: risk,
-    summary,
+    confidence: refused ? 0.0 : 0.7,
+    confidence_label: refused ? "Very low" : "Moderate",
+    risk_level: refused ? "unknown" : mt >= 1 ? "high" : "moderate",
+    summary: refused
+      ? "Environment data unavailable. Impact-specific crater/tsunami physics was refused."
+      : `Surface=${surface_type}, branch=${impactBranch?.branch}, energy ~${mt.toExponential(2)} Mt.`,
     key_findings: [
       `Surface: ${surface_type}`,
-      `Impact branch: ${impactBranch?.branch ?? "n/a"}`,
-      `Models: ${(impactBranch?.models_run || []).join(", ") || "none"}`,
-      `Energy: ${mt.toExponential(3)} Mt TNT`,
+      `Physics branch: ${impactBranch?.branch ?? "undetermined"}`,
+      refused
+        ? "No crater/tsunami manufactured without Earth data"
+        : `Models: ${(impactBranch?.models_run || []).join(", ")}`,
     ],
     limitations: [
-      "Client-side enrichment fallback when backend patch is missing.",
-      "Environment classification is heuristic until GEBCO is wired.",
+      "Environment must come from observed DEM/bathymetry (GEBCO).",
+      "Without data the simulator refuses environment-specific effects.",
     ],
     recommended_actions: [
-      "python backend/apply_next_frontier_patch.py",
-      "Restart uvicorn",
-      "Set GEMINI_API_KEY in backend/.env for Gemini reports",
+      "Ensure backend can reach api.opentopodata.org (GEBCO 2020)",
+      "Or pass surface_hint=land|ocean|ice as an explicit user override",
+      "python backend/apply_next_frontier_patch.py && restart uvicorn",
     ],
     source: "rule_based_client",
   };
@@ -228,33 +178,36 @@ export function ensureEnrichment(data, lat, lon) {
     Number(sim.ground_impact_energy_J) ||
     0;
 
+  // Prefer backend environment. NEVER invent land/ocean on the client.
   const environment =
     data.environment ||
     data.terrain ||
-    classifyEnvironment(Number(lat) || 0, Number(lon) || 0);
+    unavailableEnvironment(Number(lat) || 0, Number(lon) || 0);
 
   const impact_branch =
     data.impact_branch ||
-    resolveImpactBranch(environment, energy, sim.consequences || null);
+    resolveImpactBranch(
+      environment,
+      energy,
+      environment.surface === "land" ? sim.consequences || null : null
+    );
 
   const tsunami =
     data.tsunami ||
     impact_branch.tsunami || {
       applicable: false,
+      refused: impact_branch.branch === "undetermined",
       impact_energy_J: energy,
       impact_energy_megatons_tnt: energy / 4.184e15,
       estimated_source_amplitude_m: 0,
+      notes: ["Tsunami not computed without observed ocean environment."],
     };
 
   const analyst =
     data.analyst ||
     ruleAnalyst({
-      outcome: sim.outcome || "completed",
       surface_type: environment.surface || environment.surface_type,
       energyJ: energy,
-      fragmentation: Boolean(sim.fragmentation_detected),
-      terrainConfidence: environment.surface_confidence ?? environment.confidence ?? 0.5,
-      tsunami,
       impactBranch: impact_branch,
     });
 
