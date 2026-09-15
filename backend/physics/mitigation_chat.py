@@ -1,12 +1,8 @@
 """
-Mitigation+ — adaptive tone, full context, source-linked explainers.
+Mitigation+ — mission analyst trained on the authoritative system prompt.
 
-Integrates:
-- Human conversational style
-- Simulation / asteroid / AI panel / place context
-- Planetary-defence priorities by environment class
-- How-calculation-works → points at source files
-- General NASA / project knowledge beyond a single run
+Physics calculates. Environment contextualises. Branches gate consequences.
+This module explains results from the simulation payload; it never overrides them.
 """
 from __future__ import annotations
 
@@ -18,6 +14,11 @@ from typing import Any, Literal
 import httpx
 
 from physics.calc_explainers import format_explainer, match_explainer
+from physics.mitigation_system_prompt import (
+    EXAMPLE_ENGINES,
+    EXAMPLE_LIMITATIONS,
+    MITIGATION_SYSTEM_PROMPT,
+)
 from physics.place_lookup import reverse_geocode
 from physics.project_knowledge import (
     ENGINES,
@@ -74,7 +75,9 @@ def detect_tone(message: str) -> Tone:
         )
     ):
         return "technical"
-    if any(k in lower for k in ("tldr", "tl;dr", "briefly", "in one sentence", "short answer")):
+    if any(
+        k in lower for k in ("tldr", "tl;dr", "briefly", "in one sentence", "short answer")
+    ):
         return "brief"
     if any(
         k in lower
@@ -86,20 +89,20 @@ def detect_tone(message: str) -> Tone:
         for k in ("judge", "report", "formal", "for the judges", "documentation")
     ):
         return "formal"
-    if any(k in lower for k in ("lol", "haha", "bro", "dude", "level up")):
+    if any(k in lower for k in ("lol", "haha", "bro", "dude")):
         return "playful"
     return "default"
 
 
 def tone_instruction(tone: Tone) -> str:
     return {
-        "curious": "Explain gently, like to a smart friend new to the topic. Short analogies OK.",
-        "technical": "Be precise. Name modules, fields, and assumptions. Still readable.",
+        "curious": "Explain gently, like to a smart friend new to the topic.",
+        "technical": "Be precise. Name modules and assumptions. Still readable.",
         "brief": "Answer in 2–4 sentences max. Offer to go deeper.",
-        "empathetic": "Calm and grounding. Stress this is educational screening, not a real alert.",
-        "formal": "Clear, judge-ready prose. Structure: what → how → limits.",
-        "playful": "Warm and a bit witty, but never sloppy on the science.",
-        "default": "Thoughtful teammate voice: natural paragraphs, honest, concrete.",
+        "empathetic": "Calm. Stress educational screening, not a real alert.",
+        "formal": "Judge-ready: what → how → limits.",
+        "playful": "Warm, a bit witty, never sloppy on science.",
+        "default": "Conversational teammate. Answer the question first.",
     }[tone]
 
 
@@ -148,6 +151,23 @@ def _num(value: Any, digits: int = 2) -> str:
         return "n/a"
 
 
+def _surface_of(context: dict[str, Any]) -> str:
+    return str(
+        context.get("surface")
+        or context.get("environment_class")
+        or (context.get("environment") or {}).get("surface")
+        or "unknown"
+    ).lower()
+
+
+def _branch_of(context: dict[str, Any]) -> str:
+    return str(
+        context.get("physics_branch")
+        or (context.get("impact_branch") or {}).get("branch")
+        or _surface_of(context)
+    ).lower()
+
+
 def _enrich_place(context: dict[str, Any]) -> dict[str, Any]:
     if context.get("place") and context["place"].get("display_name"):
         return context
@@ -171,6 +191,7 @@ def _enrich_place(context: dict[str, Any]) -> dict[str, Any]:
 
 
 def _panel_summary(context: dict[str, Any]) -> str:
+    """Explain payload only — never invent numbers."""
     env = context.get("environment") or {}
     branch = context.get("impact_branch") or {}
     analyst = context.get("analyst") or {}
@@ -178,12 +199,7 @@ def _panel_summary(context: dict[str, Any]) -> str:
     asteroid = context.get("asteroid") or {}
     place = context.get("place") or {}
 
-    surface = (
-        env.get("surface")
-        or context.get("surface")
-        or context.get("environment_class")
-        or "unknown"
-    )
+    surface = _surface_of(context)
     conf = env.get("surface_confidence", context.get("surface_confidence"))
     source = env.get("terrain_source") or env.get("source") or "n/a"
     material = env.get("material") or {}
@@ -204,97 +220,95 @@ def _panel_summary(context: dict[str, Any]) -> str:
         place_line = f"At {_num(lat, 4)}°, {_num(lon, 4)}°. "
 
     lines = [
-        f"{place_line}Environment panel: **{surface}**"
+        f"{place_line}From the current payload: environment **{surface}**"
         + (f", confidence {_num(conf, 2)}" if conf is not None else "")
         + f", source **{source}** ({env.get('data_status') or 'n/a'})."
     ]
     if material.get("type"):
         dens = material.get("density_kg_m3")
+        extra = []
+        if dens is not None:
+            extra.append(f"{dens} kg/m³")
+        if elev is not None:
+            extra.append(f"elev {_num(elev, 1)} m")
+        if bathy is not None:
+            extra.append(f"bathymetry {_num(bathy, 1)} m")
         lines.append(
             f"Material {material['type']}"
-            + (f" ({dens} kg/m³)" if dens is not None else "")
-            + (
-                f"; elevation ~{_num(elev, 1)} m"
-                if elev is not None
-                else ""
-            )
-            + (
-                f"; bathymetry ~{_num(bathy, 1)} m"
-                if bathy is not None
-                else ""
-            )
+            + (f" ({', '.join(extra)})" if extra else "")
             + "."
         )
 
-    branch_name = branch.get("branch") or context.get("physics_branch") or surface
+    branch_name = _branch_of(context)
     models = branch.get("models_run") or []
     lines.append(
         f"Physics branch **{branch_name}**"
-        + (f" — {', '.join(models)}" if models else "")
+        + (f" — models present: {', '.join(models)}" if models else " — no environment models run")
         + "."
     )
 
+    # Only describe consequence numbers that exist on the active branch payload
     if branch_name == "land":
         crater = (branch.get("crater") or {}).get("final_diameter_m")
         blast = (branch.get("blast") or {}).get("radius_m")
         thermal = (branch.get("thermal") or {}).get("radius_m")
         bits = []
         if crater is not None:
-            bits.append(f"crater ~{_num(crater / 1000, 2)} km")
+            bits.append(f"crater diameter {_num(crater / 1000, 2)} km (screening)")
         if blast is not None:
-            bits.append(f"blast ~{_num(blast / 1000, 1)} km")
+            bits.append(f"blast radius {_num(blast / 1000, 1)} km (screening)")
         if thermal is not None:
-            bits.append(f"thermal ~{_num(thermal / 1000, 1)} km")
+            bits.append(f"thermal radius {_num(thermal / 1000, 1)} km (screening)")
         if bits:
-            lines.append("Land screening: " + "; ".join(bits) + ".")
+            lines.append("Land branch values in payload: " + "; ".join(bits) + ".")
+        else:
+            lines.append("Land branch is active but crater/blast/thermal fields are not populated in this payload.")
     elif branch_name == "ocean":
+        lines.append(
+            "Ocean branch is active — terrestrial crater/blast/thermal are not applicable consequences here."
+        )
         ts = branch.get("tsunami") or context.get("tsunami") or {}
         amp = ts.get("estimated_source_amplitude_m")
         if amp is not None:
             lines.append(
-                f"Tsunami screen source amplitude ~{_num(amp, 1)} m (not a coastal forecast)."
+                f"Tsunami screening source amplitude in payload: {_num(amp, 1)} m "
+                "(energy-scaling screen, not a coastal forecast)."
             )
-    elif branch_name == "undetermined":
-        lines.append("Crater/tsunami physics refused — no environment data, no guess.")
-
-    if analyst:
+    elif branch_name == "undetermined" or surface == "unknown":
         lines.append(
-            f"AI report: risk **{analyst.get('risk_level', 'n/a')}**, "
+            "Surface is unknown or undetermined — environment-specific consequences were intentionally withheld."
+        )
+
+    if analyst.get("summary"):
+        lines.append(
+            f"Analyst (advisory): risk {analyst.get('risk_level', 'n/a')}, "
             f"confidence {analyst.get('confidence_label', 'n/a')} "
-            f"({_num(analyst.get('confidence'), 2)}). "
-            f"{analyst.get('summary') or ''}"
+            f"({_num(analyst.get('confidence'), 2)}). {analyst.get('summary')}"
         )
 
     if sim:
         frag = sim.get("fragmentation_detected")
         lines.append(
-            f"Entry outcome {sim.get('outcome') or 'n/a'}"
+            f"Entry outcome in payload: {sim.get('outcome') or 'n/a'}"
             + (
-                f"; fragmentation {'yes' if frag else 'no'}"
+                f"; fragmentation {'detected' if frag else 'not detected'}"
                 if frag is not None
                 else ""
             )
             + "."
         )
-        if sim.get("atmospheric_fraction") is not None:
-            try:
-                lines.append(
-                    f"~{float(sim['atmospheric_fraction']) * 100:.1f}% atmospheric energy fraction in this screen."
-                )
-            except (TypeError, ValueError):
-                pass
 
     if asteroid.get("name") or asteroid.get("id"):
         lines.append(
-            f"Asteroid {asteroid.get('name') or asteroid.get('id')}"
+            f"Selected asteroid ☄️ {asteroid.get('name') or asteroid.get('id')}"
             + (
-                f", ⌀ {_num(asteroid.get('diameter_km'), 4)} km"
+                f", diameter {_num(asteroid.get('diameter_km'), 4)} km"
                 if asteroid.get("diameter_km") is not None
                 else ""
             )
             + ("; PHA" if asteroid.get("hazardous") else "")
             + (
-                f", miss {_num(asteroid.get('miss_distance_km'), 0)} km"
+                f", miss distance {_num(asteroid.get('miss_distance_km'), 0)} km"
                 if asteroid.get("miss_distance_km") is not None
                 else ""
             )
@@ -313,65 +327,74 @@ def _explain_no_crater(surface: str, branch: str) -> str:
         )
     if surface == "unknown" or branch == "undetermined":
         return (
-            "Because the environment engine couldn't confirm land vs ocean. Unknown "
-            "surface means we refuse to manufacture a crater or tsunami."
+            "Because the environment class is unknown. Environment-specific consequences "
+            "(including crater) were intentionally withheld — no data, no guess."
         )
-    if surface == "ice":
+    if surface == "ice" or branch == "ice":
         return (
-            "Ice was the environment class, so land-crater scaling wasn't the primary branch."
+            "Ice was the environment class, so terrestrial land-crater scaling was not "
+            "the active branch for this run."
         )
     return (
-        "On land we do run crater scaling — check the land consequences / impact branch panel."
+        "On the land branch the payload may include crater screening values. "
+        "I only report numbers that appear in the simulation payload."
     )
 
 
-def _human_priorities(surface: str, branch: str, energy_mt: Any) -> str:
+def _human_priorities(surface: str, energy_mt: Any) -> str:
     priorities = immediate_priorities(surface)
     energy_bit = ""
     try:
         if energy_mt is not None:
-            energy_bit = f" Energy scale ~{float(energy_mt):.3g} Mt TNT (screening)."
+            energy_bit = (
+                f" Impact energy in the payload is about {float(energy_mt):.3g} Mt TNT "
+                "equivalent (screening scale)."
+            )
     except (TypeError, ValueError):
         pass
-    leads = {
-        "ocean": f"Ocean impact — think coastlines first, not land craters.{energy_bit}",
-        "land": f"Land impact — exclusion and blast/thermal/seismic awareness first.{energy_bit}",
-        "ice": f"Ice impact — screening-level orientation only.{energy_bit}",
-        "unknown": "No trusted surface yet — I won't invent crater or tsunami actions.",
-    }
-    lead = leads.get(surface, leads["unknown"])
+
+    if surface == "ocean":
+        lead = (
+            f"For this ocean-class result, cautious next steps would warrant further "
+            f"coastal assessment rather than land-crater thinking.{energy_bit}"
+        )
+    elif surface == "land":
+        lead = (
+            f"For this land-class result, screening priorities focus on exclusion and "
+            f"blast/thermal/seismic exposure awareness.{energy_bit}"
+        )
+    elif surface == "ice":
+        lead = f"Ice-class result — treat the following as orientation only.{energy_bit}"
+    else:
+        lead = (
+            "Surface is unknown in the payload, so I will not invent crater or tsunami "
+            "mitigation as if those models had run."
+        )
+
     body = "\n".join(f"{i}. {p}" for i, p in enumerate(priorities, 1))
-    return f"{lead}\n\nImmediate priorities:\n{body}\n\nEducational guidance, not an operational emergency plan."
+    return (
+        f"{lead}\n\nScreening-oriented priorities:\n{body}\n\n"
+        "A real assessment would require specialised agencies and higher-fidelity models. "
+        "This is not an operational emergency instruction."
+    )
 
 
 def _apply_tone_wrapper(text: str, tone: Tone) -> str:
     if tone == "brief":
-        # keep first ~2 paragraphs
         parts = [p.strip() for p in re.split(r"\n\n+", text) if p.strip()]
         return "\n\n".join(parts[:2])
     if tone == "empathetic":
-        prefix = (
-            "First: this app is an educational screen, not a real-time alert system. "
-            "Nothing here should be read as ‘something is happening to you right now.’\n\n"
+        return (
+            "This app is an educational screen, not a live alert. "
+            "Nothing here means an impact is happening to you right now.\n\n"
+            + text
         )
-        return prefix + text
-    if tone == "formal":
-        return text  # already structured; Gemini gets formal instruction
     return text
 
 
 def _rule_reply(message: str, context: dict[str, Any], tone: Tone) -> str:
-    surface = str(
-        context.get("surface")
-        or context.get("environment_class")
-        or (context.get("environment") or {}).get("surface")
-        or "unknown"
-    ).lower()
-    branch = str(
-        context.get("physics_branch")
-        or (context.get("impact_branch") or {}).get("branch")
-        or surface
-    ).lower()
+    surface = _surface_of(context)
+    branch = _branch_of(context)
     energy_mt = context.get("impact_energy_mt")
     if energy_mt is None and context.get("simulation"):
         energy_mt = context["simulation"].get("impact_energy_megatons_tnt")
@@ -380,6 +403,23 @@ def _rule_reply(message: str, context: dict[str, Any], tone: Tone) -> str:
     explainer = match_explainer(message)
     if explainer:
         return _apply_tone_wrapper(format_explainer(explainer), tone)
+
+    if any(
+        k in lower
+        for k in (
+            "project limitation",
+            "the limitation",
+            "limitations",
+            "what are the limit",
+        )
+    ):
+        return _apply_tone_wrapper(EXAMPLE_LIMITATIONS, tone)
+
+    if any(
+        k in lower
+        for k in ("explain the engine", "the engines", "working pieces", "working engine")
+    ) or ("engine" in lower and "explain" in lower):
+        return _apply_tone_wrapper(EXAMPLE_ENGINES, tone)
 
     if any(
         k in lower
@@ -407,8 +447,10 @@ def _rule_reply(message: str, context: dict[str, Any], tone: Tone) -> str:
             "where is",
             "what place",
             "location",
+            "coordinate",
             "asteroid",
             "selected",
+            "☄️",
             "crater diameter",
             "blast radius",
             "risk",
@@ -430,24 +472,21 @@ def _rule_reply(message: str, context: dict[str, Any], tone: Tone) -> str:
             if not m.get("used_in_project")
         ]
         text = (
-            "Live in this project:\n"
+            "From project context — live services:\n"
             + "\n".join(wired)
-            + "\n\nReference only for now:\n"
+            + "\n\nReference only (not wired in this MVP):\n"
             + "\n".join(ref)
         )
         return _apply_tone_wrapper(text, tone)
 
     if "limit" in lower or "uncertain" in lower:
-        text = "Honest limits:\n" + "\n".join(f"• {x}" for x in LIMITATIONS)
-        return _apply_tone_wrapper(text, tone)
+        return _apply_tone_wrapper(EXAMPLE_LIMITATIONS, tone)
 
     if any(
         k in lower
         for k in ("priorit", "immediate", "mitigat", "evacuat", "what should")
     ):
-        return _apply_tone_wrapper(
-            _human_priorities(surface, branch, energy_mt), tone
-        )
+        return _apply_tone_wrapper(_human_priorities(surface, energy_mt), tone)
 
     if any(
         k in lower
@@ -455,17 +494,16 @@ def _rule_reply(message: str, context: dict[str, Any], tone: Tone) -> str:
     ):
         return _apply_tone_wrapper(
             PROJECT_OVERVIEW.strip()
-            + "\n\nEngines: "
-            + ", ".join(ENGINES.keys())
-            + ". Ask how any calculation works and I’ll point at the source file.",
+            + "\n\n"
+            + EXAMPLE_ENGINES
+            + "\n\nI explain the payload; I never recalculate or override it.",
             tone,
         )
 
-    # default: orient on run + invite depth
     return _apply_tone_wrapper(
         _panel_summary(context)
-        + "\n\nI can go technical (source files), plain-language, mitigation priorities, "
-        "or general NASA context — tell me which lane you want.",
+        + "\n\nAsk about a number, a branch choice, the asteroid ☄️, the place, "
+        "source modules, NASA services, or limitations — I'll answer from the payload first.",
         tone,
     )
 
@@ -479,32 +517,25 @@ def _gemini_reply(
 ) -> str | None:
     knowledge = knowledge_bundle()
     explainer = match_explainer(message)
-    system = (
-        "You are Mitigation+ for Meteor Madness (NASA Space Apps educational simulator). "
-        "Adapt your tone to the user. You have full run context: inputs, asteroid, "
-        "environment panel, impact branch, AI analyst, optional place name. "
-        "You also have general project knowledge and calculation explainers with source "
-        "file paths — when asked how a calculation works, cite those modules. "
-        "Be human. Never invent casualties. Never invent crater/tsunami when surface is unknown. "
-        "You explain; you do not operate NASA systems."
-    )
     hist_txt = "\n".join(
         f"{m.get('role', 'user')}: {m.get('content', '')}" for m in history[-10:]
     )
-    explainer_block = (
-        json.dumps(explainer, indent=2) if explainer else "null"
-    )
     prompt = (
-        f"{system}\n\nTone mode: {tone}\nTone guidance: {tone_instruction(tone)}\n\n"
-        f"Matched calculation explainer (use if relevant):\n{explainer_block}\n\n"
-        f"Project knowledge:\n{json.dumps(knowledge, indent=2)}\n\n"
-        f"Full run context:\n{json.dumps(context, indent=2)}\n\n"
-        f"Recent chat:\n{hist_txt}\n\nUser: {message}\n\nAssistant:"
+        f"{MITIGATION_SYSTEM_PROMPT}\n\n"
+        f"Tone mode: {tone}\nTone guidance: {tone_instruction(tone)}\n\n"
+        f"Matched calculation explainer (cite only if relevant; do not invent files):\n"
+        f"{json.dumps(explainer, indent=2) if explainer else 'null'}\n\n"
+        f"Project architecture / engines / NASA metadata:\n"
+        f"{json.dumps(knowledge, indent=2)}\n\n"
+        f"CURRENT SIMULATION PAYLOAD (authoritative — do not invent or alter numbers):\n"
+        f"{json.dumps(context, indent=2)}\n\n"
+        f"Recent chat:\n{hist_txt}\n\n"
+        f"User: {message}\n\nAssistant:"
     )
     body = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": 0.5 if tone in ("playful", "curious") else 0.35,
+            "temperature": 0.35 if tone != "playful" else 0.45,
             "maxOutputTokens": 1800,
         },
     }
@@ -540,12 +571,7 @@ def answer_mitigation(
     context = _enrich_place(context or {})
     history = history or []
     tone = detect_tone(message)
-    surface = str(
-        context.get("surface")
-        or context.get("environment_class")
-        or (context.get("environment") or {}).get("surface")
-        or "unknown"
-    ).lower()
+    surface = _surface_of(context)
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     reply = None
@@ -563,6 +589,7 @@ def answer_mitigation(
         "reply": reply,
         "source": source,
         "tone": tone,
+        "role": "mission_analyst",
         "immediate_priorities": immediate_priorities(surface),
         "surface": surface,
         "place": context.get("place"),
