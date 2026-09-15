@@ -10,7 +10,6 @@ function App() {
   const [asteroids, setAsteroids] = useState([]);
   const [selectedId, setSelectedId] = useState("");
 
-  // Strings so users can type negatives like -33.9 without the field resetting
   const [latitude, setLatitude] = useState("24.3745");
   const [longitude, setLongitude] = useState("88.6042");
   const [azimuth, setAzimuth] = useState("90");
@@ -62,8 +61,16 @@ function App() {
   const simulationData = simulation?.simulation ?? null;
   const trajectory = simulation?.trajectory ?? null;
   const analyst = simulation?.analyst ?? simulationData?.analyst ?? null;
-  const terrain = simulation?.terrain ?? simulationData?.terrain ?? null;
+  const environment =
+    simulation?.environment ??
+    simulation?.terrain ??
+    simulationData?.environment ??
+    simulationData?.terrain ??
+    null;
+  const terrain = environment;
   const tsunami = simulation?.tsunami ?? simulationData?.tsunami ?? null;
+  const impactBranch =
+    simulation?.impact_branch ?? simulationData?.impact_branch ?? null;
 
   function onCoordinateChange(setter) {
     return (event) => {
@@ -119,7 +126,6 @@ function App() {
         throw new Error(data.message || "Simulation failed");
       }
 
-      // Fill terrain/tsunami/analyst if backend has not been patched yet
       data = ensureEnrichment(data, latNum, lonNum);
       setSimulation(data);
     } catch (err) {
@@ -135,7 +141,7 @@ function App() {
         <header className="hero-header">
           <h1>Meteor Madness</h1>
           <p>
-            Next Frontier — entry physics, location, tsunami, AI analyst
+            Next Frontier — environment engine, land/ocean/ice branch, AI analyst
           </p>
         </header>
 
@@ -228,6 +234,16 @@ function App() {
                     : "Not detected"}
                 </strong>
               </div>
+              <div className="result-card">
+                <span>Surface</span>
+                <strong>
+                  {environment?.surface || environment?.surface_type || "N/A"}
+                </strong>
+              </div>
+              <div className="result-card">
+                <span>Impact branch</span>
+                <strong>{impactBranch?.branch ?? "N/A"}</strong>
+              </div>
             </section>
 
             <ConsequencesPanel consequences={simulationData?.consequences} />
@@ -235,6 +251,8 @@ function App() {
             <AnalystPanel
               analyst={analyst}
               terrain={terrain}
+              environment={environment}
+              impactBranch={impactBranch}
               tsunami={tsunami}
               hasSimulation={Boolean(simulation)}
             />
