@@ -1,4 +1,11 @@
-"""Next Frontier response enrichment (environment, impact branch, AI analyst)."""
+"""
+Next Frontier hierarchical enrichment.
+
+NASA → Asteroid → Entry Physics → Impact State → Earth Environment
+  → Environment Class (LAND | OCEAN | ICE | UNKNOWN)
+  → Environment-specific physics only
+  → Unified Impact Report → AI Analyst
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -14,7 +21,7 @@ def enrich_payload(
     scenario: ImpactScenario,
     simulation_response: Any,
 ) -> dict[str, Any]:
-    """Attach environment, impact_branch, tsunami, and analyst fields."""
+    """Attach hierarchical environment report. Never mix land crater with ocean."""
     environment = classify_surface(
         latitude_deg=scenario.latitude_deg,
         longitude_deg=scenario.longitude_deg,
@@ -29,15 +36,14 @@ def enrich_payload(
     )
     energy_for_secondary = float(energy_for_secondary or 0.0)
 
-    consequences = getattr(simulation_response, "consequences", None) or {}
-    if not isinstance(consequences, dict):
-        consequences = {}
+    raw_consequences = getattr(simulation_response, "consequences", None) or {}
+    if not isinstance(raw_consequences, dict):
+        raw_consequences = {}
 
-    # If environment is unknown, strip land-specific consequences so we
-    # do not present manufactured crater/blast numbers as environment truth.
-    consequences_for_branch = consequences
-    if environment.surface == "unknown":
-        consequences_for_branch = None
+    # Land-only inputs to land branch. Ocean/ice/unknown never see crater scaling.
+    consequences_for_branch = (
+        raw_consequences if environment.surface == "land" else None
+    )
 
     resolved = resolve_impact_environment(
         environment=environment,
@@ -47,29 +53,33 @@ def enrich_payload(
 
     impact_branch = resolved["impact_branch"]
     env_dict = resolved["environment"]
+    branch_name = impact_branch.get("branch", "undetermined")
+
+    # Hierarchical effect blocks — only one is populated
+    land_effects = impact_branch if branch_name == "land" else None
+    ocean_effects = impact_branch if branch_name == "ocean" else None
+    ice_effects = impact_branch if branch_name == "ice" else None
 
     tsunami = None
-    if impact_branch.get("branch") == "ocean":
+    if branch_name == "ocean":
         tsunami = impact_branch.get("tsunami")
     else:
         tsunami = {
             "applicable": False,
-            "refused": impact_branch.get("branch") == "undetermined",
+            "refused": branch_name in ("undetermined", "land", "ice"),
             "impact_energy_J": energy_for_secondary,
             "impact_energy_megatons_tnt": energy_for_secondary / 4.184e15,
             "estimated_source_amplitude_m": 0.0,
             "estimated_coastal_runup_indicator_m": 0.0,
             "notes": [
-                "Tsunami not computed: surface is not an observed ocean, "
-                "or environment data is unavailable."
+                "Tsunami only runs on the OCEAN branch with observed environment."
             ],
         }
 
     crater_diameter = None
-    if environment.surface == "land" and isinstance(consequences, dict):
-        largest = consequences.get("largest_crater") or consequences
-        if isinstance(largest, dict):
-            crater_diameter = largest.get("final_crater_diameter_m")
+    if branch_name == "land" and land_effects:
+        crater = land_effects.get("crater") or {}
+        crater_diameter = crater.get("final_diameter_m")
 
     has_tsunami = bool(tsunami and tsunami.get("applicable"))
 
@@ -92,10 +102,59 @@ def enrich_payload(
         ),
     )
 
+    entry_physics = {
+        "outcome": getattr(simulation_response, "outcome", None),
+        "fragmentation_detected": getattr(
+            simulation_response, "fragmentation_detected", False
+        ),
+        "fragmentation_altitude_m": getattr(
+            simulation_response, "fragmentation_altitude_m", None
+        ),
+        "atmospheric_fraction": getattr(
+            simulation_response, "atmospheric_fraction", None
+        ),
+        "impact_energy_J": energy_for_secondary,
+        "impact_energy_megatons_tnt": energy_for_secondary / 4.184e15,
+        "parent_final_mass_kg": getattr(
+            simulation_response, "parent_final_mass_kg", None
+        ),
+        "parent_final_velocity_m_s": getattr(
+            simulation_response, "parent_final_velocity_m_s", None
+        ),
+    }
+
+    unified_report = {
+        "architecture": [
+            "NASA",
+            "Asteroid",
+            "Entry Physics",
+            "Impact State",
+            "Earth Environment",
+            "Environment Class",
+            "Environment-specific Physics",
+            "Unified Impact Report",
+            "AI Analyst",
+        ],
+        "environment_class": environment.surface,
+        "physics_branch": branch_name,
+        "entry_physics": entry_physics,
+        "environment": env_dict,
+        "land_effects": land_effects,
+        "ocean_effects": ocean_effects,
+        "ice_effects": ice_effects,
+        # Legacy land consequences ONLY when land branch is active
+        "land_consequences": (
+            raw_consequences if branch_name == "land" else None
+        ),
+    }
+
     return {
         "environment": env_dict,
         "impact_branch": impact_branch,
         "terrain": env_dict,
         "tsunami": tsunami,
+        "unified_report": unified_report,
         "analyst": analyst.to_dict(),
+        # Explicit flag for UI: never render land crater panel off-land
+        "show_land_consequences": branch_name == "land",
     }
