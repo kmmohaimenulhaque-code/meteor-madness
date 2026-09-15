@@ -5,6 +5,7 @@ import "./asteroid-picker.css";
 import ConsequencesPanel from "./components/ConsequencesPanel";
 import EarthImpactMap from "./components/EarthImpactMap";
 import AnalystPanel from "./components/AnalystPanel";
+import RiskMitigationChat from "./components/RiskMitigationChat";
 import { ensureEnrichment } from "./localEnrichment";
 
 function formatAsteroidOption(a) {
@@ -172,7 +173,7 @@ function App() {
           <h1>Meteor Madness</h1>
           <p>
             Hierarchical pipeline — NASA → entry → environment class →
-            land/ocean/ice physics → AI analyst
+            land/ocean/ice physics → AI analyst → Risk Mitigation
           </p>
         </header>
 
@@ -394,6 +395,14 @@ function App() {
           </>
         )}
       </main>
+
+      <RiskMitigationChat
+        simulation={simulation}
+        environment={environment}
+        impactBranch={impactBranch}
+        analyst={analyst}
+        simulationData={simulationData}
+      />
     </div>
   );
 }

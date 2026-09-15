@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Idempotent one-shot patch: wire Next Frontier enrichment into main.py.
-
-Run:
-  python backend/apply_next_frontier_patch.py
-"""
+"""Idempotent patch: enrich_payload + mitigation router into main.py."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,10 +8,6 @@ MAIN = Path(__file__).resolve().parent / "main.py"
 
 
 def patch(text: str) -> str:
-    if "from physics.enrichment import enrich_payload" in text and "extra = enrich_payload" in text:
-        print("Already fully patched")
-        return text
-
     if "from physics.enrichment import enrich_payload" not in text:
         text = text.replace(
             "from physics.consequences import (\n"
@@ -27,6 +19,14 @@ def patch(text: str) -> str:
             "    consequences_to_dict,\n"
             ")\n"
             "from physics.enrichment import enrich_payload",
+            1,
+        )
+
+    if "mitigation_routes" not in text:
+        text = text.replace(
+            "from physics.enrichment import enrich_payload",
+            "from physics.enrichment import enrich_payload\n"
+            "from mitigation_routes import router as mitigation_router",
             1,
         )
 
@@ -49,6 +49,34 @@ def patch(text: str) -> str:
             1,
         )
 
+    if "include_router(mitigation_router)" not in text:
+        text = text.replace(
+            "app.add_middleware(\n"
+            "    CORSMiddleware,\n"
+            '    allow_origins=["*"],\n'
+            "    allow_credentials=True,\n"
+            '    allow_methods=["*"],\n'
+            '    allow_headers=["*"],\n'
+            ")",
+            "app.add_middleware(\n"
+            "    CORSMiddleware,\n"
+            '    allow_origins=["*"],\n'
+            "    allow_credentials=True,\n"
+            '    allow_methods=["*"],\n'
+            '    allow_headers=["*"],\n'
+            ")\n\n"
+            "app.include_router(mitigation_router)",
+            1,
+        )
+        if "include_router(mitigation_router)" not in text:
+            # Fallback: attach after app = FastAPI(...)
+            text = text.replace(
+                'app = FastAPI(\n    title="Meteor Madness Physics API",\n    version=API_VERSION,\n)',
+                'app = FastAPI(\n    title="Meteor Madness Physics API",\n    version=API_VERSION,\n)\n\n'
+                "app.include_router(mitigation_router)",
+                1,
+            )
+
     text = text.replace('API_VERSION = "0.4.0"', 'API_VERSION = "0.5.0"', 1)
 
     if "surface_hint: str | None = Field" not in text:
@@ -66,47 +94,9 @@ def patch(text: str) -> str:
             "    )\n\n"
             "    surface_hint: str | None = Field(\n"
             "        default=None,\n"
-            '        description="Optional land or ocean. None = auto-classify.",\n'
+            '        description="Optional land, ocean, or ice.",\n'
             "    )\n\n\n"
             "class SimulationResponse",
-            1,
-        )
-
-    if "request.surface_hint" not in text:
-        text = text.replace(
-            "    scenario = ImpactScenario(\n"
-            "        latitude_deg=(\n"
-            "            request.latitude_deg\n"
-            "        ),\n"
-            "        longitude_deg=(\n"
-            "            request.longitude_deg\n"
-            "        ),\n"
-            "        entry_azimuth_deg=(\n"
-            "            request.entry_azimuth_deg\n"
-            "        ),\n"
-            "    )\n\n"
-            "    config = SimulationConfig(\n"
-            "        timestep_s=request.timestep_s,\n"
-            "        max_time_s=request.max_time_s,\n"
-            "    )",
-            "    scenario = ImpactScenario(\n"
-            "        latitude_deg=(\n"
-            "            request.latitude_deg\n"
-            "        ),\n"
-            "        longitude_deg=(\n"
-            "            request.longitude_deg\n"
-            "        ),\n"
-            "        entry_azimuth_deg=(\n"
-            "            request.entry_azimuth_deg\n"
-            "        ),\n"
-            "        surface_hint=(\n"
-            "            request.surface_hint\n"
-            "        ),\n"
-            "    )\n\n"
-            "    config = SimulationConfig(\n"
-            "        timestep_s=request.timestep_s,\n"
-            "        max_time_s=request.max_time_s,\n"
-            "    )",
             1,
         )
 
@@ -255,8 +245,6 @@ def patch(text: str) -> str:
         )
         if old_entry in text:
             text = text.replace(old_entry, new_entry, 1)
-        else:
-            print("WARN: direct entry return not patched")
 
     return text
 
@@ -267,7 +255,8 @@ def main() -> None:
     compile(updated, str(MAIN), "exec")
     MAIN.write_text(updated)
     print(f"Patched {MAIN}")
-    print("enrich_payload wired:", "extra = enrich_payload" in updated)
+    print("enrich:", "extra = enrich_payload" in updated)
+    print("mitigation router:", "mitigation_router" in updated)
 
 
 if __name__ == "__main__":
