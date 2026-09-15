@@ -172,8 +172,8 @@ function App() {
         <header className="hero-header">
           <h1>Meteor Madness</h1>
           <p>
-            Hierarchical pipeline — NASA → entry → environment class →
-            land/ocean/ice physics → AI analyst → Risk Mitigation
+            Hierarchical pipeline — NASA → entry → environment → physics branch
+            → AI analyst → Mitigation and more
           </p>
         </header>
 
@@ -402,6 +402,7 @@ function App() {
         impactBranch={impactBranch}
         analyst={analyst}
         simulationData={simulationData}
+        asteroid={selectedAsteroid}
       />
     </div>
   );
