@@ -57,13 +57,10 @@ function buildContext({
     0;
 
   return {
-    // User inputs
     latitude: latitude != null && latitude !== "" ? Number(latitude) : null,
     longitude: longitude != null && longitude !== "" ? Number(longitude) : null,
     entry_azimuth_deg:
       azimuth != null && azimuth !== "" ? Number(azimuth) : null,
-
-    // Environment / panel
     surface,
     environment_class: surface,
     surface_confidence: environment?.surface_confidence ?? environment?.confidence,
@@ -72,8 +69,6 @@ function buildContext({
     impact_branch: impactBranch || null,
     tsunami: tsunami || null,
     analyst: analyst || null,
-
-    // Simulation
     simulation: simulationData
       ? {
           outcome: simulationData.outcome,
@@ -87,8 +82,6 @@ function buildContext({
         }
       : null,
     impact_energy_mt: energyJ / 4.184e15,
-
-    // Asteroid
     asteroid: asteroid
       ? {
           id: asteroid.id,
@@ -157,14 +150,14 @@ export default function RiskMitigationChat({
   useEffect(() => {
     const intro = simulation
       ? [
-          `Hey — I've got this run loaded as **${surface}**.`,
+          `Hey — run loaded as **${surface}**.`,
           "",
-          "I can talk through the environment panel, crater/blast numbers, the asteroid you picked, or the place at these coordinates. What do you want to dig into?",
+          "Ask casually, technically, or briefly — I’ll match your tone. I can explain this panel, the asteroid, the place, or how a calculation works (with source files).",
         ].join("\n")
       : [
           "Hey — Mitigation+ is online.",
           "",
-          "Pick an asteroid, set coordinates, run a simulation, then ask me about the results, the place, or how the engines work.",
+          "Adaptive tone: try ‘explain simply’, ‘which file computes crater?’, or ‘tldr priorities’. Run a simulation anytime for full context.",
         ].join("\n");
     setMessages([{ role: "assistant", content: intro, source: "intro" }]);
   }, [simulation, surface]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -205,7 +198,9 @@ export default function RiskMitigationChat({
           {
             role: "assistant",
             content: data.reply || "No reply.",
-            source: data.source || "api",
+            source: data.tone
+              ? `${data.source || "api"} · ${data.tone}`
+              : data.source || "api",
           },
         ]);
       } else {
@@ -249,7 +244,7 @@ export default function RiskMitigationChat({
             <div>
               <strong>Mitigation and more</strong>
               <span className="risk-chat-sub">
-                Results · place · asteroid · {surface}
+                Adaptive · source-aware · {surface}
               </span>
             </div>
             <button
@@ -280,19 +275,21 @@ export default function RiskMitigationChat({
             <button type="button" onClick={() => send("Summarise this simulation and the AI panel")}>
               This run
             </button>
+            <button
+              type="button"
+              onClick={() =>
+                send("How does the crater calculation work and which source file?")
+              }
+            >
+              How calc
+            </button>
+            <button type="button" onClick={() => send("Explain the entry physics simply")}>
+              ELI5 entry
+            </button>
             <button type="button" onClick={() => send("Where is this impact location?")}>
               Place
             </button>
-            <button type="button" onClick={() => send("Tell me about the selected asteroid")}>
-              Asteroid
-            </button>
-            <button
-              type="button"
-              onClick={() => send("Why didn’t Meteor Madness calculate a surface crater?")}
-            >
-              Why no crater?
-            </button>
-            <button type="button" onClick={() => send("What are the immediate priorities?")}>
+            <button type="button" onClick={() => send("What are the immediate priorities? tldr")}>
               Priorities
             </button>
           </div>
@@ -307,7 +304,7 @@ export default function RiskMitigationChat({
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask about results, place, asteroid…"
+              placeholder="Technical, simple, tldr, or source file…"
               disabled={busy}
             />
             <button type="submit" disabled={busy || !input.trim()}>
@@ -327,16 +324,23 @@ function localReply(message, surface, priorities, context) {
   const asteroid = context.asteroid || {};
   const analyst = context.analyst || {};
 
+  if (lower.includes("how") && (lower.includes("crater") || lower.includes("calc"))) {
+    return (
+      "Land crater/blast/thermal scaling lives in `backend/physics/consequences.py` and is " +
+      "selected only when `impact_environment.py` picks the land branch. Ocean runs skip it on purpose."
+    );
+  }
+
   if (lower.includes("asteroid") || lower.includes("selected")) {
     if (!asteroid.name && !asteroid.id) {
-      return "No asteroid is selected yet — pick one from the NASA list first.";
+      return "No asteroid selected yet — pick one from the NASA list first.";
     }
     return [
       `You're looking at ${asteroid.name || asteroid.id}.`,
       asteroid.diameter_km != null
         ? `Diameter about ${Number(asteroid.diameter_km).toFixed(4)} km.`
         : null,
-      asteroid.hazardous ? "It's flagged as potentially hazardous (PHA)." : "Not flagged as a PHA in this feed.",
+      asteroid.hazardous ? "Flagged PHA." : "Not flagged PHA in this feed.",
       asteroid.miss_distance_km != null
         ? `Miss distance about ${Number(asteroid.miss_distance_km).toLocaleString()} km.`
         : null,
@@ -345,24 +349,15 @@ function localReply(message, surface, priorities, context) {
       .join(" ");
   }
 
-  if (
-    lower.includes("place") ||
-    lower.includes("where") ||
-    lower.includes("location")
-  ) {
-    const lat = context.latitude;
-    const lon = context.longitude;
-    return `Coordinates are ${lat}, ${lon}. The backend reverse-geocoder names the place when the mitigation API is up — restart uvicorn after pull if needed.`;
+  if (lower.includes("place") || lower.includes("where")) {
+    return `Coordinates ${context.latitude}, ${context.longitude}. Backend Nominatim names the place when /api/mitigation/chat is up.`;
   }
 
-  if (
-    lower.includes("crater") &&
-    (lower.includes("didn") || lower.includes("why") || surface !== "land")
-  ) {
+  if (lower.includes("crater") && (lower.includes("didn") || lower.includes("why"))) {
     if (surface === "ocean") {
       return (
         "Because the selected impact environment was ocean. The land-crater model was " +
-        "intentionally not applied; the simulation used the ocean branch instead."
+        "intentionally not applied; the ocean branch handled displacement and tsunami screening."
       );
     }
   }
@@ -370,9 +365,9 @@ function localReply(message, surface, priorities, context) {
   if (lower.includes("summar") || lower.includes("panel") || lower.includes("run")) {
     const crater = branch.crater?.final_diameter_m;
     return [
-      `Environment: ${surface} (source ${env.terrain_source || env.source || "n/a"}).`,
+      `Environment: ${surface} (${env.terrain_source || env.source || "n/a"}).`,
       `Branch: ${branch.branch || surface}.`,
-      crater != null ? `Crater diameter ~${(crater / 1000).toFixed(2)} km.` : null,
+      crater != null ? `Crater ~${(crater / 1000).toFixed(2)} km.` : null,
       analyst.summary || null,
     ]
       .filter(Boolean)
@@ -380,7 +375,7 @@ function localReply(message, surface, priorities, context) {
   }
 
   return [
-    `This run is on **${surface}**. First moves I'd consider:`,
+    `Surface **${surface}**. Immediate priorities:`,
     ...priorities.map((p, i) => `${i + 1}. ${p}`),
   ].join("\n");
 }
