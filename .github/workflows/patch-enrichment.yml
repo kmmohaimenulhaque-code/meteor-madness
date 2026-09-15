@@ -1,0 +1,40 @@
+name: Patch Next Frontier enrichment into main.py
+
+on:
+  push:
+    branches:
+      - feature/next-frontier-architecture
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Apply enrichment patch to main.py
+        run: |
+          python backend/apply_next_frontier_patch.py
+          if grep -q "extra = enrich_payload" backend/main.py; then
+            echo "PATCH_OK: enrich_payload is wired"
+          else
+            echo "PATCH_FAIL: enrich_payload still missing"
+            exit 1
+          fi
+
+      - name: Commit patched main.py if changed
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "feat: wire enrich_payload into main.py (auto)"
+          file_pattern: backend/main.py

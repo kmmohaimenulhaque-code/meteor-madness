@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Idempotent one-shot patch: wire Next Frontier enrichment into main.py.
 
-Run from repo root or backend/:
+Run:
   python backend/apply_next_frontier_patch.py
 """
 from __future__ import annotations
@@ -27,6 +27,25 @@ def patch(text: str) -> str:
             "    consequences_to_dict,\n"
             ")\n"
             "from physics.enrichment import enrich_payload",
+            1,
+        )
+
+    if "CORSMiddleware" not in text:
+        text = text.replace(
+            "from fastapi import FastAPI",
+            "from fastapi import FastAPI\nfrom fastapi.middleware.cors import CORSMiddleware",
+            1,
+        )
+        text = text.replace(
+            'app = FastAPI(\n    title="Meteor Madness Physics API",\n    version=API_VERSION,\n)',
+            'app = FastAPI(\n    title="Meteor Madness Physics API",\n    version=API_VERSION,\n)\n\n'
+            "app.add_middleware(\n"
+            "    CORSMiddleware,\n"
+            '    allow_origins=["*"],\n'
+            "    allow_credentials=True,\n"
+            '    allow_methods=["*"],\n'
+            '    allow_headers=["*"],\n'
+            ")",
             1,
         )
 
@@ -234,10 +253,10 @@ def patch(text: str) -> str:
             "# NASA -> SIMULATION\n"
             "# ============================================================"
         )
-        if old_entry not in text:
-            print("WARN: direct entry return not patched (pattern mismatch)")
-        else:
+        if old_entry in text:
             text = text.replace(old_entry, new_entry, 1)
+        else:
+            print("WARN: direct entry return not patched")
 
     return text
 
@@ -248,6 +267,7 @@ def main() -> None:
     compile(updated, str(MAIN), "exec")
     MAIN.write_text(updated)
     print(f"Patched {MAIN}")
+    print("enrich_payload wired:", "extra = enrich_payload" in updated)
 
 
 if __name__ == "__main__":
