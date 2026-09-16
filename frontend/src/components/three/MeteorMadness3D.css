@@ -1,59 +1,76 @@
 .meteor-3d-panel {
-  margin-top: 32px;
+  position: relative;
+  width: 100%;
+  margin-top: 28px;
   border: 1px solid rgba(96, 165, 250, 0.22);
-  border-radius: 24px;
+  border-radius: 20px;
   overflow: hidden;
   background:
     radial-gradient(
-      circle at 50% 20%,
-      rgba(14, 116, 144, 0.13),
-      transparent 45%
+      circle at 50% 35%,
+      rgba(14, 165, 233, 0.08),
+      transparent 38%
     ),
     #020617;
   box-shadow:
-    0 24px 80px rgba(0, 0, 0, 0.35);
+    0 24px 80px rgba(0, 0, 0, 0.45),
+    inset 0 0 60px rgba(14, 165, 233, 0.035);
 }
 
 .meteor-3d-header {
+  position: relative;
+  z-index: 5;
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 24px 28px;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 22px 24px 18px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(2, 6, 23, 0.98),
+      rgba(2, 6, 23, 0.82)
+    );
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
 .meteor-3d-kicker {
-  margin: 0 0 7px;
-  color: #38bdf8;
-  font-size: 0.72rem;
+  margin: 0 0 6px;
+  font-size: 10px;
+  letter-spacing: 0.18em;
   font-weight: 800;
-  letter-spacing: 0.16em;
+  color: #38bdf8;
 }
 
 .meteor-3d-header h2 {
   margin: 0;
   color: #f8fafc;
-  font-size: 1.45rem;
+  font-size: clamp(20px, 2.4vw, 30px);
+  line-height: 1.1;
+  letter-spacing: -0.025em;
 }
 
-.meteor-3d-header p {
-  margin: 7px 0 0;
+.meteor-3d-header p:last-child {
+  max-width: 680px;
+  margin: 8px 0 0;
   color: #94a3b8;
-  font-size: 0.88rem;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .meteor-3d-status {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  border: 1px solid rgba(74, 222, 128, 0.25);
+  white-space: nowrap;
+  padding: 8px 11px;
+  border: 1px solid rgba(34, 197, 94, 0.22);
   border-radius: 999px;
+  background: rgba(34, 197, 94, 0.055);
   color: #86efac;
-  font-size: 0.7rem;
+  font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
 }
 
 .meteor-3d-status-dot {
@@ -62,187 +79,448 @@
   border-radius: 50%;
   background: #4ade80;
   box-shadow: 0 0 12px #4ade80;
+  animation: meteor3d-pulse 1.5s infinite;
 }
 
 .meteor-3d-stage {
   position: relative;
-  height: 650px;
-  min-height: 500px;
+  height: min(720px, 72vh);
+  min-height: 520px;
+  overflow: hidden;
 }
 
 .meteor-3d-stage canvas {
   display: block;
-  width: 100%;
-  height: 100%;
+  width: 100% !important;
+  height: 100% !important;
 }
 
-.meteor-3d-help {
+/* -------------------------------------------------------------------------- */
+/* COMMAND BAR                                                                 */
+/* -------------------------------------------------------------------------- */
+
+.meteor-3d-commandbar {
   position: absolute;
+  z-index: 10;
   left: 18px;
+  right: 18px;
   bottom: 18px;
 
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-
-  pointer-events: none;
-}
-
-.meteor-3d-help span {
-  padding: 7px 10px;
-  border-radius: 8px;
-  background: rgba(2, 6, 23, 0.72);
-  border: 1px solid rgba(148, 163, 184, 0.14);
-
-  color: #cbd5e1;
-  font-size: 0.72rem;
-
-  backdrop-filter: blur(8px);
-}
-
-.meteor-3d-controls {
-  display: flex;
-  gap: 8px;
   align-items: center;
-  pointer-events: auto;
-  transform: translateY(-8px);
-}
+  gap: 8px;
 
-.meteor-3d-controls button {
-  border: 1px solid rgba(251, 146, 60, 0.35);
-  border-radius: 10px;
+  padding: 8px;
 
-  padding: 10px 14px;
-
-  background: rgba(15, 23, 42, 0.88);
-  color: #fed7aa;
-
-  cursor: pointer;
-
-  font-weight: 800;
-  font-size: 0.75rem;
-
-  backdrop-filter: blur(8px);
-
-  transition:
-    transform 160ms ease,
-    background 160ms ease;
-}
-
-.meteor-3d-controls button:hover {
-  transform: translateY(-2px);
-  background: rgba(124, 45, 18, 0.85);
-}
-
-.meteor-3d-controls button.secondary {
-  border-color: rgba(148, 163, 184, 0.2);
-  color: #cbd5e1;
-}
-
-.meteor-3d-data {
-  width: 150px;
-
-  padding: 12px;
-
-  border-radius: 12px;
-
-  background: rgba(2, 6, 23, 0.72);
-  border: 1px solid rgba(96, 165, 250, 0.18);
-
-  backdrop-filter: blur(10px);
-
-  color: white;
-}
-
-.meteor-3d-data > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-
-  padding: 6px 0;
-
-  border-bottom: 1px solid
-    rgba(148, 163, 184, 0.08);
-}
-
-.meteor-3d-data > div:last-child {
-  border-bottom: 0;
-}
-
-.meteor-3d-data span {
-  color: #64748b;
-  font-size: 0.62rem;
-  font-weight: 800;
-}
-
-.meteor-3d-data strong {
-  color: #e2e8f0;
-  font-size: 0.68rem;
-  text-align: right;
-}
-
-.meteor-3d-label {
-  min-width: 150px;
-
-  padding: 9px 11px;
-
-  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 13px;
 
   background: rgba(2, 6, 23, 0.82);
-  border: 1px solid rgba(251, 146, 60, 0.32);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 
-  backdrop-filter: blur(8px);
-
-  pointer-events: none;
+  box-shadow:
+    0 10px 35px rgba(0, 0, 0, 0.35);
 }
 
-.meteor-3d-label strong {
-  display: block;
+.meteor-3d-commandbar button,
+.meteor-3d-speed button {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.7);
+  color: #cbd5e1;
+  cursor: pointer;
+  transition:
+    160ms ease,
+    transform 160ms ease;
+}
 
-  color: #fed7aa;
-
-  font-size: 0.68rem;
+.meteor-3d-commandbar button {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 800;
   letter-spacing: 0.08em;
 }
 
-.meteor-3d-label span {
-  display: block;
+.meteor-3d-commandbar button:hover,
+.meteor-3d-speed button:hover {
+  border-color: rgba(56, 189, 248, 0.45);
+  color: #f8fafc;
+  transform: translateY(-1px);
+}
 
-  margin-top: 3px;
+.meteor-3d-commandbar button.primary {
+  border-color: rgba(251, 146, 60, 0.5);
+  background: rgba(194, 65, 12, 0.22);
+  color: #fed7aa;
+}
 
+.meteor-3d-segment {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.65);
+}
+
+.meteor-3d-segment button {
+  border-color: transparent;
+  background: transparent;
+}
+
+.meteor-3d-segment button.active {
+  border-color: rgba(56, 189, 248, 0.3);
+  background: rgba(14, 165, 233, 0.14);
+  color: #7dd3fc;
+}
+
+/* -------------------------------------------------------------------------- */
+/* SPEED                                                                       */
+/* -------------------------------------------------------------------------- */
+
+.meteor-3d-speed {
+  position: absolute;
+  z-index: 10;
+  right: 18px;
+  bottom: 78px;
+
+  display: flex;
+  gap: 4px;
+
+  padding: 5px;
+
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 10px;
+
+  background: rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(12px);
+}
+
+.meteor-3d-speed button {
+  min-width: 38px;
+  height: 28px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.meteor-3d-speed button.active {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(14, 165, 233, 0.16);
+  color: #7dd3fc;
+}
+
+/* -------------------------------------------------------------------------- */
+/* TELEMETRY                                                                   */
+/* -------------------------------------------------------------------------- */
+
+.meteor-3d-telemetry {
+  position: absolute;
+  z-index: 10;
+  top: 18px;
+  left: 18px;
+
+  width: 250px;
+
+  padding: 14px;
+
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  border-radius: 12px;
+
+  background: rgba(2, 6, 23, 0.76);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+
+  box-shadow:
+    0 12px 35px rgba(0, 0, 0, 0.28);
+}
+
+.telemetry-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.telemetry-heading span {
+  color: #94a3b8;
+}
+
+.telemetry-heading b {
+  color: #38bdf8;
+  font-size: 8px;
+}
+
+.telemetry-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+
+  padding: 8px 0;
+
+  border-bottom: 1px solid rgba(148, 163, 184, 0.07);
+}
+
+.telemetry-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.telemetry-row span {
+  color: #64748b;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.telemetry-row strong {
   color: #e2e8f0;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: right;
+}
 
-  font-size: 0.66rem;
+/* -------------------------------------------------------------------------- */
+/* TARGET LOCK                                                                 */
+/* -------------------------------------------------------------------------- */
+
+.meteor-3d-location {
+  position: absolute;
+  z-index: 10;
+  top: 18px;
+  right: 18px;
+
+  display: flex;
+  align-items: center;
+
+  padding: 9px 12px;
+
+  border: 1px solid rgba(251, 146, 60, 0.28);
+  border-radius: 999px;
+
+  background: rgba(67, 20, 7, 0.48);
+  backdrop-filter: blur(12px);
+
+  color: #fed7aa;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.location-dot {
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+
+  border-radius: 50%;
+
+  background: #fb923c;
+
+  box-shadow:
+    0 0 7px #fb923c,
+    0 0 14px rgba(251, 146, 60, 0.5);
+}
+
+/* -------------------------------------------------------------------------- */
+/* IMPACT LABEL                                                                */
+/* -------------------------------------------------------------------------- */
+
+.meteor-3d-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  min-width: 145px;
+
+  padding: 8px 10px;
+
+  border: 1px solid rgba(251, 146, 60, 0.4);
+  border-radius: 8px;
+
+  background: rgba(2, 6, 23, 0.9);
+  box-shadow:
+    0 8px 25px rgba(0, 0, 0, 0.35);
+
+  pointer-events: none;
+  transform: translateY(-2px);
+}
+
+.meteor-3d-label strong {
+  color: #fed7aa;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+
+.meteor-3d-label span {
+  color: #e2e8f0;
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .meteor-3d-label small {
-  display: block;
-
-  margin-top: 4px;
-
-  color: #64748b;
-
-  font-size: 0.58rem;
+  color: #94a3b8;
+  font-size: 8px;
+  letter-spacing: 0.1em;
 }
+
+.meteor-3d-label.is-live {
+  border-color: rgba(248, 113, 113, 0.7);
+  box-shadow:
+    0 0 18px rgba(251, 146, 60, 0.22),
+    0 8px 30px rgba(0, 0, 0, 0.45);
+}
+
+/* -------------------------------------------------------------------------- */
+/* HELP                                                                        */
+/* -------------------------------------------------------------------------- */
+
+.meteor-3d-help {
+  position: absolute;
+  z-index: 8;
+  left: 50%;
+  bottom: 86px;
+
+  transform: translateX(-50%);
+
+  display: flex;
+  gap: 16px;
+
+  color: rgba(148, 163, 184, 0.55);
+
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+
+  pointer-events: none;
+}
+
+/* -------------------------------------------------------------------------- */
+/* CINEMATIC SCANLINE                                                         */
+/* -------------------------------------------------------------------------- */
+
+.meteor-3d-scanline {
+  position: absolute;
+  z-index: 7;
+  inset: 0;
+
+  pointer-events: none;
+
+  background:
+    linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(56, 189, 248, 0.018) 50%,
+      transparent 100%
+    );
+
+  opacity: 0.55;
+}
+
+/* -------------------------------------------------------------------------- */
+/* ANIMATION                                                                   */
+/* -------------------------------------------------------------------------- */
+
+@keyframes meteor3d-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.45;
+    transform: scale(0.72);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* RESPONSIVE                                                                  */
+/* -------------------------------------------------------------------------- */
 
 @media (max-width: 800px) {
   .meteor-3d-header {
-    align-items: flex-start;
     flex-direction: column;
+    gap: 12px;
+  }
+
+  .meteor-3d-status {
+    align-self: flex-start;
   }
 
   .meteor-3d-stage {
-    height: 520px;
-    min-height: 420px;
+    min-height: 600px;
   }
 
-  .meteor-3d-data {
+  .meteor-3d-telemetry {
+    width: 215px;
+    top: 12px;
+    left: 12px;
+  }
+
+  .meteor-3d-location {
+    top: auto;
+    right: 12px;
+    bottom: 125px;
+  }
+
+  .meteor-3d-commandbar {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+
+    flex-wrap: wrap;
+  }
+
+  .meteor-3d-segment {
+    width: 100%;
+  }
+
+  .meteor-3d-segment button {
+    flex: 1;
+  }
+
+  .meteor-3d-speed {
+    right: 12px;
+    bottom: 72px;
+  }
+
+  .meteor-3d-help {
     display: none;
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .meteor-3d-controls button {
-    transition: none;
+@media (max-width: 520px) {
+  .meteor-3d-stage {
+    min-height: 560px;
+  }
+
+  .meteor-3d-telemetry {
+    width: 190px;
+    padding: 10px;
+  }
+
+  .telemetry-row {
+    padding: 6px 0;
+  }
+
+  .meteor-3d-commandbar {
+    gap: 5px;
+  }
+
+  .meteor-3d-commandbar button {
+    padding: 0 8px;
+  }
+
+  .meteor-3d-location {
+    font-size: 8px;
   }
 }
