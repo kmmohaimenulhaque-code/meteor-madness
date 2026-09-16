@@ -397,7 +397,20 @@ function App() {
 )}
 
 
-
+            
+         {trajectory && (
+  <GoogleImpactMap
+    trajectory={trajectory}
+    consequences={isLand ? landConsequences : null}
+    environment={environment}
+    simulation={simulation}
+    impactBranch={impactBranch}
+    selectedAsteroid={selectedAsteroid}
+    latitude={latitude}
+    longitude={longitude}
+  />
+            
+)} 
 {trajectory && (
   <MeteorMadness3D
     simulation={simulation}
