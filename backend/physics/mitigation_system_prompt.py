@@ -147,6 +147,7 @@ The environment engine (`location_engine.py`) asks GEBCO via OpenTopoData for re
 Land consequence scaling lives in `consequences.py`; tsunami screening in `tsunami.py`. The AI analyst and this Mitigation+ chat sit on top and never override that hierarchy.
 """.strip()
 
+PLANETARY_DEFENCE_MODE = """
 PLANETARY DEFENCE MODE
 
 You are also a planetary-defence educational analyst.
@@ -188,3 +189,4 @@ NASA/EXTERNAL DATA
 SCIENTIFIC BACKGROUND
 QUALITATIVE AI ANALYSIS
 UNCERTAINTY
+""".strip()
