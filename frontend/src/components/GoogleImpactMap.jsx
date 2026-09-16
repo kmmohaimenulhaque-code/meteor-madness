@@ -1,13 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./GoogleImpactMap.css";
 
-const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-const GOOGLE_MAP_ID = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID";
+const GOOGLE_MAPS_API_KEY =
+  import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+
+const GOOGLE_MAP_ID =
+  import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID";
 
 let googleMapsPromise = null;
 
+/*
+ * ---------------------------------------------------------
+ * GOOGLE MAPS LOADER
+ * ---------------------------------------------------------
+ *
+ * We deliberately load the Maps JavaScript API with the
+ * required "marker" library up front.
+ *
+ * This avoids relying on:
+ *
+ *   window.google.maps.importLibrary()
+ *
+ * because the current deployment was exposing a Maps
+ * object without that method.
+ */
 function loadGoogleMaps() {
-  if (window.google?.maps) {
+  if (
+    window.google?.maps?.Map &&
+    window.google?.maps?.marker?.AdvancedMarkerElement
+  ) {
     return Promise.resolve(window.google.maps);
   }
 
@@ -26,39 +47,86 @@ function loadGoogleMaps() {
       'script[data-meteor-madness-google-maps="true"]'
     );
 
+    /*
+     * Another component/script may already be loading Google
+     * Maps. Wait for it instead of inserting another script.
+     */
     if (existingScript) {
-      existingScript.addEventListener("load", () =>
-        resolve(window.google.maps)
+      const handleLoad = () => {
+        if (
+          window.google?.maps?.Map &&
+          window.google?.maps?.marker?.AdvancedMarkerElement
+        ) {
+          resolve(window.google.maps);
+        } else {
+          reject(
+            new Error(
+              "Google Maps loaded, but the required Marker library is unavailable"
+            )
+          );
+        }
+      };
+
+      const handleError = () => {
+        reject(
+          new Error("Google Maps failed to load")
+        );
+      };
+
+      existingScript.addEventListener(
+        "load",
+        handleLoad,
+        { once: true }
       );
-      existingScript.addEventListener("error", () =>
-        reject(new Error("Google Maps failed to load"))
+
+      existingScript.addEventListener(
+        "error",
+        handleError,
+        { once: true }
       );
+
       return;
     }
 
     const script = document.createElement("script");
 
+    const params = new URLSearchParams({
+      key: GOOGLE_MAPS_API_KEY,
+      v: "weekly",
+      loading: "async",
+      libraries: "marker",
+      auth_referrer_policy: "origin",
+    });
+
     script.src =
-      `https://maps.googleapis.com/maps/api/js` +
-      `?key=${encodeURIComponent(GOOGLE_MAPS_API_KEY)}` +
-      `&loading=async` +
-      `&v=weekly` +
-      `&auth_referrer_policy=origin`;
+      `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
 
     script.async = true;
     script.defer = true;
+
     script.dataset.meteorMadnessGoogleMaps = "true";
 
     script.onload = () => {
-      if (window.google?.maps) {
+      if (
+        window.google?.maps?.Map &&
+        window.google?.maps?.marker?.AdvancedMarkerElement
+      ) {
         resolve(window.google.maps);
       } else {
-        reject(new Error("Google Maps loaded without API"));
+        reject(
+          new Error(
+            "Google Maps loaded, but the required Marker library is unavailable"
+          )
+        );
       }
     };
 
     script.onerror = () => {
-      reject(new Error("Google Maps API could not be loaded"));
+      reject(
+        new Error(
+          "Google Maps API could not be loaded"
+        )
+      );
     };
 
     document.head.appendChild(script);
@@ -66,6 +134,12 @@ function loadGoogleMaps() {
 
   return googleMapsPromise;
 }
+
+/*
+ * ---------------------------------------------------------
+ * IMPACT COORDINATES
+ * ---------------------------------------------------------
+ */
 
 function getImpactCoordinates(trajectory) {
   const latCandidates = [
@@ -96,24 +170,56 @@ function getImpactCoordinates(trajectory) {
   };
 }
 
-function getEntryCoordinates(trajectory, impact) {
-  const lat = Number(trajectory?.entry_latitude_deg);
-  const lng = Number(trajectory?.entry_longitude_deg);
+/*
+ * ---------------------------------------------------------
+ * ENTRY COORDINATES
+ * ---------------------------------------------------------
+ */
 
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    return { lat, lng };
+function getEntryCoordinates(
+  trajectory,
+  impact
+) {
+  const lat = Number(
+    trajectory?.entry_latitude_deg
+  );
+
+  const lng = Number(
+    trajectory?.entry_longitude_deg
+  );
+
+  if (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng)
+  ) {
+    return {
+      lat,
+      lng,
+    };
   }
 
   return impact;
 }
 
-function getRadius(consequences, keys) {
+/*
+ * ---------------------------------------------------------
+ * CONSEQUENCE RADIUS
+ * ---------------------------------------------------------
+ */
+
+function getRadius(
+  consequences,
+  keys
+) {
   for (const key of keys) {
     const value = Number(
       consequences?.[key]
     );
 
-    if (Number.isFinite(value) && value > 0) {
+    if (
+      Number.isFinite(value) &&
+      value > 0
+    ) {
       return value;
     }
   }
@@ -121,7 +227,16 @@ function getRadius(consequences, keys) {
   return 0;
 }
 
-function getEnvironmentLabel(environment, impactBranch) {
+/*
+ * ---------------------------------------------------------
+ * ENVIRONMENT LABEL
+ * ---------------------------------------------------------
+ */
+
+function getEnvironmentLabel(
+  environment,
+  impactBranch
+) {
   return (
     environment?.place?.short_name ||
     environment?.place?.display_name ||
@@ -132,13 +247,24 @@ function getEnvironmentLabel(environment, impactBranch) {
   );
 }
 
-function createImpactMarkerContent() {
-  const element = document.createElement("div");
+/*
+ * ---------------------------------------------------------
+ * CUSTOM MARKER CONTENT
+ * ---------------------------------------------------------
+ */
 
-  element.className = "google-impact-marker";
+function createImpactMarkerContent() {
+  const element =
+    document.createElement("div");
+
+  element.className =
+    "google-impact-marker";
 
   element.innerHTML = `
-    <div class="google-impact-marker-core">☄</div>
+    <div class="google-impact-marker-core">
+      ☄
+    </div>
+
     <div class="google-impact-marker-pulse"></div>
   `;
 
@@ -146,33 +272,55 @@ function createImpactMarkerContent() {
 }
 
 function createEntryMarkerContent() {
-  const element = document.createElement("div");
+  const element =
+    document.createElement("div");
 
-  element.className = "google-entry-marker";
+  element.className =
+    "google-entry-marker";
 
   element.innerHTML = `
-    <div class="google-entry-marker-core">✦</div>
+    <div class="google-entry-marker-core">
+      ✦
+    </div>
   `;
 
   return element;
 }
 
-function createLabelContent(title, subtitle) {
-  const element = document.createElement("div");
+function createLabelContent(
+  title,
+  subtitle
+) {
+  const element =
+    document.createElement("div");
 
-  element.className = "google-map-label";
+  element.className =
+    "google-map-label";
 
   element.innerHTML = `
-    <div class="google-map-label-title">${title}</div>
+    <div class="google-map-label-title">
+      ${title}
+    </div>
+
     ${
       subtitle
-        ? `<div class="google-map-label-subtitle">${subtitle}</div>`
+        ? `
+          <div class="google-map-label-subtitle">
+            ${subtitle}
+          </div>
+        `
         : ""
     }
   `;
 
   return element;
 }
+
+/*
+ * ---------------------------------------------------------
+ * COMPONENT
+ * ---------------------------------------------------------
+ */
 
 export default function GoogleImpactMap({
   trajectory,
@@ -181,21 +329,47 @@ export default function GoogleImpactMap({
   impactBranch,
   selectedAsteroid,
 }) {
-  const mapContainerRef = useRef(null);
-  const mapRef = useRef(null);
-  const objectsRef = useRef([]);
+  const mapContainerRef =
+    useRef(null);
 
-  const [mapReady, setMapReady] = useState(false);
-  const [mapError, setMapError] = useState("");
-  const [satelliteMode, setSatelliteMode] = useState(false);
+  const mapRef =
+    useRef(null);
+
+  const objectsRef =
+    useRef([]);
+
+  const infoWindowRef =
+    useRef(null);
+
+  const [mapReady, setMapReady] =
+    useState(false);
+
+  const [mapError, setMapError] =
+    useState("");
+
+  const [satelliteMode, setSatelliteMode] =
+    useState(false);
+
+  /*
+   * -------------------------------------------------------
+   * DERIVED DATA
+   * -------------------------------------------------------
+   */
 
   const impact = useMemo(
-    () => getImpactCoordinates(trajectory),
+    () =>
+      getImpactCoordinates(
+        trajectory
+      ),
     [trajectory]
   );
 
   const entry = useMemo(
-    () => getEntryCoordinates(trajectory, impact),
+    () =>
+      getEntryCoordinates(
+        trajectory,
+        impact
+      ),
     [trajectory, impact]
   );
 
@@ -210,26 +384,37 @@ export default function GoogleImpactMap({
 
   const radii = useMemo(
     () => ({
-      thermal: getRadius(consequences, [
-        "maximum_thermal_radius_m",
-        "thermal_radius_m",
-      ]),
-      blast: getRadius(consequences, [
-        "maximum_blast_radius_m",
-        "blast_radius_m",
-      ]),
-      seismic: getRadius(consequences, [
-        "maximum_seismic_radius_m",
-        "seismic_radius_m",
-      ]),
+      thermal: getRadius(
+        consequences,
+        [
+          "maximum_thermal_radius_m",
+          "thermal_radius_m",
+        ]
+      ),
+
+      blast: getRadius(
+        consequences,
+        [
+          "maximum_blast_radius_m",
+          "blast_radius_m",
+        ]
+      ),
+
+      seismic: getRadius(
+        consequences,
+        [
+          "maximum_seismic_radius_m",
+          "seismic_radius_m",
+        ]
+      ),
     }),
     [consequences]
   );
 
   /*
-   * ---------------------------------------------------------
-   * LOAD GOOGLE MAPS
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
+   * INITIALISE GOOGLE MAP
+   * -------------------------------------------------------
    */
 
   useEffect(() => {
@@ -237,44 +422,63 @@ export default function GoogleImpactMap({
 
     async function initialise() {
       try {
-        await loadGoogleMaps();
+        setMapError("");
 
-        if (cancelled || !mapContainerRef.current) {
+        const googleMaps =
+          await loadGoogleMaps();
+
+        if (
+          cancelled ||
+          !mapContainerRef.current
+        ) {
           return;
         }
 
-        const { Map } =
-          await window.google.maps.importLibrary("maps");
+        const Map =
+          googleMaps.maps.Map;
 
-        if (cancelled || !mapContainerRef.current) {
-          return;
+        if (!Map) {
+          throw new Error(
+            "Google Maps Map constructor is unavailable"
+          );
         }
 
-        const map = new Map(
-          mapContainerRef.current,
-          {
-            center: impact,
-            zoom: 7,
+        const map =
+          new Map(
+            mapContainerRef.current,
+            {
+              center: impact,
 
-            mapId: GOOGLE_MAP_ID,
+              zoom: 7,
 
-            mapTypeId: "roadmap",
+              mapId: GOOGLE_MAP_ID,
 
-            gestureHandling: "greedy",
+              mapTypeId:
+                "roadmap",
 
-            streetViewControl: false,
+              gestureHandling:
+                "greedy",
 
-            fullscreenControl: true,
+              streetViewControl:
+                false,
 
-            mapTypeControl: true,
+              fullscreenControl:
+                true,
 
-            zoomControl: true,
+              mapTypeControl:
+                true,
 
-            clickableIcons: true,
+              zoomControl:
+                true,
 
-            restriction: undefined,
-          }
-        );
+              clickableIcons:
+                true,
+            }
+          );
+
+        if (cancelled) {
+          return;
+        }
 
         mapRef.current = map;
 
@@ -300,51 +504,83 @@ export default function GoogleImpactMap({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [impact]);
 
   /*
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    * DRAW / UPDATE IMPACT VISUALISATION
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    */
 
   useEffect(() => {
-    if (!mapReady || !mapRef.current || !window.google?.maps) {
+    if (
+      !mapReady ||
+      !mapRef.current ||
+      !window.google?.maps
+    ) {
       return;
     }
 
     let cancelled = false;
 
     async function renderImpactLayer() {
-      const map = mapRef.current;
+      const map =
+        mapRef.current;
 
       /*
-       * Remove previous Google Maps objects.
+       * ---------------------------------------------------
+       * REMOVE PREVIOUS OBJECTS
+       * ---------------------------------------------------
        */
-      objectsRef.current.forEach((object) => {
-        if (object?.setMap) {
-          object.setMap(null);
-        } else if ("map" in object) {
-          object.map = null;
+
+      objectsRef.current.forEach(
+        (object) => {
+          if (
+            object?.setMap
+          ) {
+            object.setMap(null);
+          } else if (
+            object &&
+            "map" in object
+          ) {
+            object.map = null;
+          }
         }
-      });
+      );
 
       objectsRef.current = [];
 
-      const { AdvancedMarkerElement } =
-        await window.google.maps.importLibrary("marker");
+      if (
+        infoWindowRef.current
+      ) {
+        infoWindowRef.current.close();
 
-      const { InfoWindow } =
-        await window.google.maps.importLibrary("maps");
+        infoWindowRef.current =
+          null;
+      }
 
-      if (cancelled) {
+      /*
+       * ---------------------------------------------------
+       * ADVANCED MARKER
+       * ---------------------------------------------------
+       */
+
+      const AdvancedMarkerElement =
+        window.google?.maps?.marker
+          ?.AdvancedMarkerElement;
+
+      if (!AdvancedMarkerElement) {
+        setMapError(
+          "Google Maps Marker library is unavailable"
+        );
+
         return;
       }
 
       /*
-       * -----------------------------------------------------
+       * ---------------------------------------------------
        * MAP POSITION
-       * -----------------------------------------------------
+       * ---------------------------------------------------
        */
 
       map.setCenter(impact);
@@ -352,9 +588,9 @@ export default function GoogleImpactMap({
       map.setZoom(7);
 
       /*
-       * -----------------------------------------------------
+       * ---------------------------------------------------
        * ENTRY → IMPACT TRAJECTORY
-       * -----------------------------------------------------
+       * ---------------------------------------------------
        */
 
       const trajectoryLine =
@@ -373,16 +609,18 @@ export default function GoogleImpactMap({
           clickable: false,
         });
 
-      trajectoryLine.setMap(map);
+      trajectoryLine.setMap(
+        map
+      );
 
       objectsRef.current.push(
         trajectoryLine
       );
 
       /*
-       * -----------------------------------------------------
+       * ---------------------------------------------------
        * IMPACT MARKER
-       * -----------------------------------------------------
+       * ---------------------------------------------------
        */
 
       const impactMarker =
@@ -391,28 +629,35 @@ export default function GoogleImpactMap({
 
           position: impact,
 
-          title: "Meteor Madness modelled impact",
-        });
+          title:
+            "Meteor Madness modelled impact",
 
-      impactMarker.content =
-        createImpactMarkerContent();
+          content:
+            createImpactMarkerContent(),
+        });
 
       objectsRef.current.push(
         impactMarker
       );
 
       /*
-       * -----------------------------------------------------
+       * ---------------------------------------------------
        * ENTRY MARKER
-       * -----------------------------------------------------
+       * ---------------------------------------------------
        */
 
       if (
         Number.isFinite(entry.lat) &&
         Number.isFinite(entry.lng) &&
         (
-          Math.abs(entry.lat - impact.lat) > 0.001 ||
-          Math.abs(entry.lng - impact.lng) > 0.001
+          Math.abs(
+            entry.lat -
+              impact.lat
+          ) > 0.001 ||
+          Math.abs(
+            entry.lng -
+              impact.lng
+          ) > 0.001
         )
       ) {
         const entryMarker =
@@ -421,11 +666,12 @@ export default function GoogleImpactMap({
 
             position: entry,
 
-            title: "Atmospheric entry point",
-          });
+            title:
+              "Atmospheric entry point",
 
-        entryMarker.content =
-          createEntryMarkerContent();
+            content:
+              createEntryMarkerContent(),
+          });
 
         objectsRef.current.push(
           entryMarker
@@ -433,13 +679,13 @@ export default function GoogleImpactMap({
       }
 
       /*
-       * -----------------------------------------------------
+       * ---------------------------------------------------
        * IMPACT INFORMATION WINDOW
-       * -----------------------------------------------------
+       * ---------------------------------------------------
        */
 
       const infoWindow =
-        new InfoWindow({
+        new window.google.maps.InfoWindow({
           content: `
             <div style="
               min-width:220px;
@@ -514,76 +760,101 @@ export default function GoogleImpactMap({
           `,
         });
 
+      infoWindowRef.current =
+        infoWindow;
+
       impactMarker.addListener(
         "click",
         () => {
           infoWindow.open({
             map,
-            anchor: impactMarker,
+            anchor:
+              impactMarker,
           });
         }
       );
 
       /*
-       * -----------------------------------------------------
+       * ---------------------------------------------------
        * CONSEQUENCE ZONES
-       * -----------------------------------------------------
+       * ---------------------------------------------------
        */
 
       const zones = [
         {
-          radius: radii.thermal,
-          name: "Thermal radiation",
-          className: "thermal",
-          opacity: 0.18,
+          radius:
+            radii.thermal,
+
+          name:
+            "Thermal radiation",
+
+          opacity:
+            0.18,
         },
 
         {
-          radius: radii.blast,
-          name: "Blast zone",
-          className: "blast",
-          opacity: 0.16,
+          radius:
+            radii.blast,
+
+          name:
+            "Blast zone",
+
+          opacity:
+            0.16,
         },
 
         {
-          radius: radii.seismic,
-          name: "Seismic zone",
-          className: "seismic",
-          opacity: 0.12,
+          radius:
+            radii.seismic,
+
+          name:
+            "Seismic zone",
+
+          opacity:
+            0.12,
         },
       ];
 
-      zones.forEach((zone) => {
-        if (!zone.radius || zone.radius <= 0) {
-          return;
+      zones.forEach(
+        (zone) => {
+          if (
+            !zone.radius ||
+            zone.radius <= 0
+          ) {
+            return;
+          }
+
+          const circle =
+            new window.google.maps.Circle({
+              map,
+
+              center: impact,
+
+              radius:
+                zone.radius,
+
+              strokeOpacity:
+                0.75,
+
+              strokeWeight:
+                2,
+
+              fillOpacity:
+                zone.opacity,
+
+              clickable: false,
+            });
+
+          objectsRef.current.push(
+            circle
+          );
         }
-
-        const circle =
-          new window.google.maps.Circle({
-            map,
-
-            center: impact,
-
-            radius: zone.radius,
-
-            strokeOpacity: 0.75,
-
-            strokeWeight: 2,
-
-            fillOpacity: zone.opacity,
-
-            clickable: false,
-          });
-
-        objectsRef.current.push(
-          circle
-        );
-      });
+      );
 
       /*
-       * -----------------------------------------------------
+       * ---------------------------------------------------
        * IMPACT LABEL
-       * -----------------------------------------------------
+       * ---------------------------------------------------
        */
 
       const labelMarker =
@@ -591,26 +862,55 @@ export default function GoogleImpactMap({
           map,
 
           position: {
-            lat: impact.lat + 0.15,
-            lng: impact.lng,
+            lat:
+              impact.lat +
+              0.15,
+
+            lng:
+              impact.lng,
           },
 
-          title: "Impact location",
-        });
+          title:
+            "Impact location",
 
-      labelMarker.content =
-        createLabelContent(
-          "MODELLED IMPACT",
-          environmentLabel ||
-            `${impact.lat.toFixed(3)}°, ${impact.lng.toFixed(3)}°`
-        );
+          content:
+            createLabelContent(
+              "MODELLED IMPACT",
+
+              environmentLabel ||
+                `${impact.lat.toFixed(
+                  3
+                )}°, ${impact.lng.toFixed(
+                  3
+                )}°`
+            ),
+        });
 
       objectsRef.current.push(
         labelMarker
       );
+
+      if (cancelled) {
+        return;
+      }
     }
 
-    renderImpactLayer();
+    renderImpactLayer().catch(
+      (error) => {
+        console.error(
+          "Google Maps impact layer failed:",
+          error
+        );
+
+        if (!cancelled) {
+          setMapError(
+            error instanceof Error
+              ? error.message
+              : "Impact layer failed to render"
+          );
+        }
+      }
+    );
 
     return () => {
       cancelled = true;
@@ -628,9 +928,9 @@ export default function GoogleImpactMap({
   ]);
 
   /*
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    * MAP TYPE
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    */
 
   useEffect(() => {
@@ -646,9 +946,9 @@ export default function GoogleImpactMap({
   }, [satelliteMode]);
 
   /*
-   * ---------------------------------------------------------
-   * FIT THE IMPACT CORRIDOR
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
+   * FIT IMPACT CORRIDOR
+   * -------------------------------------------------------
    */
 
   function fitImpactView() {
@@ -670,6 +970,12 @@ export default function GoogleImpactMap({
       100
     );
   }
+
+  /*
+   * -------------------------------------------------------
+   * API KEY MISSING
+   * -------------------------------------------------------
+   */
 
   if (!GOOGLE_MAPS_API_KEY) {
     return (
@@ -696,18 +1002,22 @@ export default function GoogleImpactMap({
           </strong>
 
           <p>
-            Add
-            {" "}
+            Add{" "}
             <code>
               VITE_GOOGLE_MAPS_API_KEY
-            </code>
-            {" "}
+            </code>{" "}
             to the frontend environment.
           </p>
         </div>
       </section>
     );
   }
+
+  /*
+   * -------------------------------------------------------
+   * MAIN UI
+   * -------------------------------------------------------
+   */
 
   return (
     <section className="panel google-impact-panel">
@@ -767,7 +1077,9 @@ export default function GoogleImpactMap({
 
         <button
           type="button"
-          onClick={fitImpactView}
+          onClick={
+            fitImpactView
+          }
         >
           🎯 Impact corridor
         </button>
@@ -792,7 +1104,9 @@ export default function GoogleImpactMap({
 
       <div className="google-map-telemetry">
         <div>
-          <span>IMPACT</span>
+          <span>
+            IMPACT
+          </span>
 
           <strong>
             {impact.lat.toFixed(4)}°,
@@ -802,7 +1116,9 @@ export default function GoogleImpactMap({
         </div>
 
         <div>
-          <span>ENVIRONMENT</span>
+          <span>
+            ENVIRONMENT
+          </span>
 
           <strong>
             {environment?.surface ||
@@ -811,7 +1127,9 @@ export default function GoogleImpactMap({
         </div>
 
         <div>
-          <span>PHYSICS</span>
+          <span>
+            PHYSICS
+          </span>
 
           <strong>
             {impactBranch?.branch ||
@@ -821,7 +1139,9 @@ export default function GoogleImpactMap({
 
         {environmentLabel && (
           <div>
-            <span>LOCATION</span>
+            <span>
+              LOCATION
+            </span>
 
             <strong>
               {environmentLabel}
