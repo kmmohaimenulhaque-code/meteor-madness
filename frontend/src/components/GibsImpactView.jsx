@@ -1,18 +1,52 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 /**
- * NASA GIBS / Worldview impact-location view.
+ * Story Mode NASA GIBS view.
  *
- * Creates a NASA Worldview snapshot around the supplied
- * impact coordinates and places the impact marker according
- * to the same geographic bounding box.
+ * IMPORTANT:
+ * This uses the SAME NASA GIBS WMS system as EarthImpactMap.jsx:
+ *
+ *   https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi
+ *
+ * Same:
+ * - MODIS Terra Corrected Reflectance True Color layer
+ * - 12 degree latitude span
+ * - latitude-aware longitude span
+ * - EPSG:4326
+ * - WMS GetMap
+ * - yesterday's imagery date
+ *
+ * The only difference is the Story Mode presentation/overlay.
  */
 
-const SNAPSHOT_SPAN = 2.5;
-const SNAPSHOT_TIME = "2024-06-15";
+const NASA_GIBS_WMS =
+  "https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi";
+
+const SATELLITE_LAYER =
+  "MODIS_Terra_CorrectedReflectance_TrueColor";
+
+const DEFAULT_MAP_SPAN_DEG = 12;
 
 function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
+  return Math.min(Math.max(value, min), max);
+}
+
+function normaliseLongitude(lon) {
+  let value = Number(lon);
+
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  while (value > 180) {
+    value -= 360;
+  }
+
+  while (value < -180) {
+    value += 360;
+  }
+
+  return value;
 }
 
 function isValidCoordinate(latitude, longitude) {
@@ -26,16 +60,124 @@ function isValidCoordinate(latitude, longitude) {
   );
 }
 
-function getSnapshotBounds(latitude, longitude) {
+/**
+ * EXACT same geographic calculation used by
+ * EarthImpactMap.jsx.
+ */
+function getSatelliteBounds(latitude, longitude) {
+  const latSpan = DEFAULT_MAP_SPAN_DEG;
+
+  const cosLat = Math.cos(
+    (latitude * Math.PI) / 180
+  );
+
+  const lonSpan =
+    DEFAULT_MAP_SPAN_DEG /
+    Math.max(Math.abs(cosLat), 0.25);
+
+  const minLat = clamp(
+    latitude - latSpan / 2,
+    -89,
+    89
+  );
+
+  const maxLat = clamp(
+    latitude + latSpan / 2,
+    -89,
+    89
+  );
+
+  const minLon = normaliseLongitude(
+    longitude - lonSpan / 2
+  );
+
+  const maxLon = normaliseLongitude(
+    longitude + lonSpan / 2
+  );
+
   return {
-    south: clamp(latitude - SNAPSHOT_SPAN, -90, 90),
-    north: clamp(latitude + SNAPSHOT_SPAN, -90, 90),
-    west: clamp(longitude - SNAPSHOT_SPAN, -180, 180),
-    east: clamp(longitude + SNAPSHOT_SPAN, -180, 180),
+    minLat,
+    maxLat,
+    minLon,
+    maxLon,
   };
 }
 
-function getMarkerPosition(latitude, longitude, bounds) {
+/**
+ * EXACT same NASA GIBS WMS URL construction
+ * used by EarthImpactMap.jsx.
+ */
+function buildSatelliteUrl(latitude, longitude) {
+  const bounds = getSatelliteBounds(
+    latitude,
+    longitude
+  );
+
+  // GIBS imagery is time-dependent.
+  // Use yesterday because the latest complete MODIS
+  // composite may not yet be available for today.
+  const date = new Date();
+
+  date.setUTCDate(
+    date.getUTCDate() - 1
+  );
+
+  const year = date.getUTCFullYear();
+
+  const month = String(
+    date.getUTCMonth() + 1
+  ).padStart(2, "0");
+
+  const day = String(
+    date.getUTCDate()
+  ).padStart(2, "0");
+
+  const imageDate =
+    `${year}-${month}-${day}`;
+
+  const params = new URLSearchParams({
+    SERVICE: "WMS",
+    VERSION: "1.1.1",
+    REQUEST: "GetMap",
+
+    LAYERS: SATELLITE_LAYER,
+
+    STYLES: "",
+
+    SRS: "EPSG:4326",
+
+    BBOX:
+      `${bounds.minLon},${bounds.minLat},` +
+      `${bounds.maxLon},${bounds.maxLat}`,
+
+    WIDTH: "1000",
+    HEIGHT: "700",
+
+    FORMAT: "image/jpeg",
+
+    TRANSPARENT: "FALSE",
+
+    TIME: imageDate,
+  });
+
+  return (
+    `${NASA_GIBS_WMS}?${params.toString()}`
+  );
+}
+
+/**
+ * Convert the impact coordinate into the same
+ * geographic bounding box used by the GIBS image.
+ *
+ * This makes the marker correspond to the actual
+ * satellite image rather than being hard-coded to
+ * the centre of the image.
+ */
+function getMarkerPosition(
+  latitude,
+  longitude,
+  bounds
+) {
   if (!bounds) {
     return {
       left: 50,
@@ -43,77 +185,70 @@ function getMarkerPosition(latitude, longitude, bounds) {
     };
   }
 
-  const { south, north, west, east } = bounds;
+  const {
+    minLat,
+    maxLat,
+    minLon,
+    maxLon,
+  } = bounds;
 
-  const longitudeRange = east - west;
-  const latitudeRange = north - south;
+  let lon = longitude;
 
-  if (longitudeRange <= 0 || latitudeRange <= 0) {
+  /*
+   * Handle the normalised longitude range.
+   * This matters if the GIBS viewport crosses
+   * the international date line.
+   */
+  if (maxLon < minLon) {
+    if (lon < minLon) {
+      lon += 360;
+    }
+  }
+
+  let longitudeRange = maxLon - minLon;
+
+  if (longitudeRange < 0) {
+    longitudeRange += 360;
+  }
+
+  const latitudeRange =
+    maxLat - minLat;
+
+  if (
+    longitudeRange <= 0 ||
+    latitudeRange <= 0
+  ) {
     return {
       left: 50,
       top: 50,
     };
   }
 
-  const left =
-    ((longitude - west) / longitudeRange) * 100;
+  let longitudeOffset =
+    lon - minLon;
 
+  if (longitudeOffset < 0) {
+    longitudeOffset += 360;
+  }
+
+  const left =
+    (longitudeOffset /
+      longitudeRange) *
+    100;
+
+  /*
+   * Image Y coordinates increase downward,
+   * whereas latitude increases upward.
+   */
   const top =
-    ((north - latitude) / latitudeRange) * 100;
+    ((maxLat - latitude) /
+      latitudeRange) *
+    100;
 
   return {
     left: clamp(left, 0, 100),
     top: clamp(top, 0, 100),
   };
-}
-
-function buildWorldviewUrl(latitude, longitude) {
-  const bounds = getSnapshotBounds(latitude, longitude);
-
-  const params = new URLSearchParams({
-    REQUEST: "GetSnapshot",
-    LAYERS:
-      "MODIS_Terra_CorrectedReflectance_TrueColor,Coastlines_15m",
-    CRS: "EPSG:4326",
-    TIME: SNAPSHOT_TIME,
-    WRAP: "DAY",
-    BBOX: [
-      bounds.south,
-      bounds.west,
-      bounds.north,
-      bounds.east,
-    ].join(","),
-    FORMAT: "image/jpeg",
-    WIDTH: "960",
-    HEIGHT: "640",
-    AUTOSCALE: "TRUE",
-  });
-
-  return (
-    "https://wvs.earthdata.nasa.gov/api/v1/snapshot?" +
-    params.toString()
-  );
-}
-
-function buildBlueMarbleUrl(latitude, longitude) {
-  const zoom = 5;
-  const tileCount = 2 ** zoom;
-
-  const x = Math.floor(
-    ((longitude + 180) / 360) * tileCount
-  );
-
-  const y = Math.floor(
-    ((90 - latitude) / 180) * tileCount
-  );
-
-  return (
-    "https://gibs.earthdata.nasa.gov/wmts/" +
-    "epsg4326/best/" +
-    "BlueMarble_NextGeneration/" +
-    "default/2004-01-01/500m/" +
-    `${zoom}/${y}/${x}.jpg`
-  );
 }
 
 export default function GibsImpactView({
@@ -122,39 +257,76 @@ export default function GibsImpactView({
   surface,
 }) {
   const lat = Number(latitude);
-  const lon = Number(longitude);
+  const lon = normaliseLongitude(
+    Number(longitude)
+  );
 
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
-  const validCoordinates = isValidCoordinate(lat, lon);
+  const validCoordinates =
+    isValidCoordinate(lat, lon);
 
+  /*
+   * SAME 12° GIBS viewport as the main simulator.
+   */
   const bounds = useMemo(() => {
     if (!validCoordinates) {
       return null;
     }
 
-    return getSnapshotBounds(lat, lon);
-  }, [lat, lon, validCoordinates]);
+    return getSatelliteBounds(
+      lat,
+      lon
+    );
+  }, [
+    lat,
+    lon,
+    validCoordinates,
+  ]);
 
-  const primaryUrl = useMemo(() => {
+  /*
+   * SAME GIBS WMS URL as the main simulator.
+   */
+  const satelliteUrl = useMemo(() => {
     if (!validCoordinates) {
       return null;
     }
 
-    return buildWorldviewUrl(lat, lon);
-  }, [lat, lon, validCoordinates]);
+    return buildSatelliteUrl(
+      lat,
+      lon
+    );
+  }, [
+    lat,
+    lon,
+    validCoordinates,
+  ]);
 
-  const fallbackUrl = useMemo(() => {
-    if (!validCoordinates) {
-      return null;
-    }
-
-    return buildBlueMarbleUrl(lat, lon);
-  }, [lat, lon, validCoordinates]);
-
+  /*
+   * Position the Story Mode impact marker
+   * against the actual GIBS bounding box.
+   */
   const markerPosition = useMemo(() => {
-    return getMarkerPosition(lat, lon, bounds);
-  }, [lat, lon, bounds]);
+    return getMarkerPosition(
+      lat,
+      lon,
+      bounds
+    );
+  }, [
+    lat,
+    lon,
+    bounds,
+  ]);
+
+  /*
+   * Reset image state whenever the coordinates
+   * or resulting GIBS URL changes.
+   */
+  useEffect(() => {
+    setFailed(false);
+    setLoaded(false);
+  }, [satelliteUrl]);
 
   if (!validCoordinates) {
     return (
@@ -166,29 +338,41 @@ export default function GibsImpactView({
     );
   }
 
-  const imageUrl = failed ? fallbackUrl : primaryUrl;
+  if (failed) {
+    return (
+      <div className="story-gibs-live">
+        <div className="story-gibs-missing">
+          NASA GIBS imagery unavailable
+        </div>
+
+        <div className="story-gibs-label">
+          NASA GIBS / MODIS ·{" "}
+          {lat.toFixed(4)}°,{" "}
+          {lon.toFixed(4)}° ·{" "}
+          {String(surface ?? "UNKNOWN")}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="story-gibs-live">
-      {imageUrl ? (
-        <img
-          key={imageUrl}
-          src={imageUrl}
-          alt={`NASA GIBS satellite view near ${lat.toFixed(
-            4
-          )}, ${lon.toFixed(4)}`}
-          className="story-gibs-img"
-          onError={() => {
-            setFailed(true);
-          }}
-        />
-      ) : (
-        <div className="story-gibs-missing">
-          Unable to load NASA GIBS imagery
-        </div>
-      )}
+      <img
+        key={satelliteUrl}
+        src={satelliteUrl}
+        alt={`NASA GIBS MODIS satellite view near ${lat.toFixed(
+          4
+        )}, ${lon.toFixed(4)}`}
+        className="story-gibs-img"
+        onLoad={() => {
+          setLoaded(true);
+        }}
+        onError={() => {
+          setFailed(true);
+        }}
+      />
 
-      {!failed ? (
+      {loaded && (
         <div
           className="story-impact-pin"
           style={{
@@ -201,11 +385,12 @@ export default function GibsImpactView({
         >
           <span />
         </div>
-      ) : null}
+      )}
 
       <div className="story-gibs-label">
-        NASA GIBS / Worldview ·{" "}
-        {lat.toFixed(4)}°, {lon.toFixed(4)}° ·{" "}
+        NASA GIBS / MODIS Terra ·{" "}
+        {lat.toFixed(4)}°,{" "}
+        {lon.toFixed(4)}° ·{" "}
         {String(surface ?? "UNKNOWN")}
       </div>
     </div>
