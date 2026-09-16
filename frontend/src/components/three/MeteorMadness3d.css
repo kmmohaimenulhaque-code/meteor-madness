@@ -1,0 +1,248 @@
+.meteor-3d-panel {
+  margin-top: 32px;
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  border-radius: 24px;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      circle at 50% 20%,
+      rgba(14, 116, 144, 0.13),
+      transparent 45%
+    ),
+    #020617;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.35);
+}
+
+.meteor-3d-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 28px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.meteor-3d-kicker {
+  margin: 0 0 7px;
+  color: #38bdf8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.meteor-3d-header h2 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 1.45rem;
+}
+
+.meteor-3d-header p {
+  margin: 7px 0 0;
+  color: #94a3b8;
+  font-size: 0.88rem;
+}
+
+.meteor-3d-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(74, 222, 128, 0.25);
+  border-radius: 999px;
+  color: #86efac;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.meteor-3d-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 12px #4ade80;
+}
+
+.meteor-3d-stage {
+  position: relative;
+  height: 650px;
+  min-height: 500px;
+}
+
+.meteor-3d-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.meteor-3d-help {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  pointer-events: none;
+}
+
+.meteor-3d-help span {
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+
+  color: #cbd5e1;
+  font-size: 0.72rem;
+
+  backdrop-filter: blur(8px);
+}
+
+.meteor-3d-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  pointer-events: auto;
+  transform: translateY(-8px);
+}
+
+.meteor-3d-controls button {
+  border: 1px solid rgba(251, 146, 60, 0.35);
+  border-radius: 10px;
+
+  padding: 10px 14px;
+
+  background: rgba(15, 23, 42, 0.88);
+  color: #fed7aa;
+
+  cursor: pointer;
+
+  font-weight: 800;
+  font-size: 0.75rem;
+
+  backdrop-filter: blur(8px);
+
+  transition:
+    transform 160ms ease,
+    background 160ms ease;
+}
+
+.meteor-3d-controls button:hover {
+  transform: translateY(-2px);
+  background: rgba(124, 45, 18, 0.85);
+}
+
+.meteor-3d-controls button.secondary {
+  border-color: rgba(148, 163, 184, 0.2);
+  color: #cbd5e1;
+}
+
+.meteor-3d-data {
+  width: 150px;
+
+  padding: 12px;
+
+  border-radius: 12px;
+
+  background: rgba(2, 6, 23, 0.72);
+  border: 1px solid rgba(96, 165, 250, 0.18);
+
+  backdrop-filter: blur(10px);
+
+  color: white;
+}
+
+.meteor-3d-data > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+
+  padding: 6px 0;
+
+  border-bottom: 1px solid
+    rgba(148, 163, 184, 0.08);
+}
+
+.meteor-3d-data > div:last-child {
+  border-bottom: 0;
+}
+
+.meteor-3d-data span {
+  color: #64748b;
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.meteor-3d-data strong {
+  color: #e2e8f0;
+  font-size: 0.68rem;
+  text-align: right;
+}
+
+.meteor-3d-label {
+  min-width: 150px;
+
+  padding: 9px 11px;
+
+  border-radius: 10px;
+
+  background: rgba(2, 6, 23, 0.82);
+  border: 1px solid rgba(251, 146, 60, 0.32);
+
+  backdrop-filter: blur(8px);
+
+  pointer-events: none;
+}
+
+.meteor-3d-label strong {
+  display: block;
+
+  color: #fed7aa;
+
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+}
+
+.meteor-3d-label span {
+  display: block;
+
+  margin-top: 3px;
+
+  color: #e2e8f0;
+
+  font-size: 0.66rem;
+}
+
+.meteor-3d-label small {
+  display: block;
+
+  margin-top: 4px;
+
+  color: #64748b;
+
+  font-size: 0.58rem;
+}
+
+@media (max-width: 800px) {
+  .meteor-3d-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .meteor-3d-stage {
+    height: 520px;
+    min-height: 420px;
+  }
+
+  .meteor-3d-data {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meteor-3d-controls button {
+    transition: none;
+  }
+}
