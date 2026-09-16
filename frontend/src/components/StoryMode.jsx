@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import SolarSystemScene from "./SolarSystemScene";
+import GibsImpactView from "./GibsImpactView";
 import "./StoryMode.css";
 
 const STAGES = [
@@ -21,7 +22,8 @@ const STAGES = [
     id: "impact",
     label: "IMPACT",
     title: "Impact point",
-    blurb: "Coordinates fix the scenario location — where the story meets the surface.",
+    blurb:
+      "Live NASA GIBS / Worldview imagery centered on your coordinates — the surface where the story lands.",
   },
   {
     id: "earth",
@@ -35,7 +37,7 @@ const STAGES = [
     label: "RISK",
     title: "Consequences",
     blurb:
-      "Only the active physics branch appears — land crater/blast or ocean tsunami screening.",
+      "Only the active physics branch appears — land blast & crater, or ocean tsunami screening.",
   },
   {
     id: "mitigation",
@@ -58,6 +60,43 @@ function KnowTip({ children }) {
 function fmt(n, d = 2) {
   if (n == null || Number.isNaN(Number(n))) return "—";
   return Number(n).toLocaleString(undefined, { maximumFractionDigits: d });
+}
+
+function LandBlastCrater({ craterKm }) {
+  return (
+    <div className="story-risk-stage land">
+      <div className="story-blast-scene">
+        <div className="story-blast-ring r1" />
+        <div className="story-blast-ring r2" />
+        <div className="story-blast-ring r3" />
+        <div className="story-blast-flash">💥</div>
+        <div className="story-crater">
+          <div className="story-crater-rim" />
+          <div className="story-crater-bowl" />
+        </div>
+      </div>
+      <p className="story-hero-caption">
+        Land branch · screening blast + crater
+        {craterKm != null ? ` ~${fmt(craterKm, 2)} km` : ""}
+      </p>
+    </div>
+  );
+}
+
+function TsunamiAnim() {
+  return (
+    <div className="story-risk-stage ocean">
+      <div className="story-tsunami-scene">
+        <div className="story-wave w1">🌊</div>
+        <div className="story-wave w2">🌊</div>
+        <div className="story-wave w3">🌊</div>
+        <div className="story-ocean-horizon" />
+      </div>
+      <p className="story-hero-caption">
+        Ocean branch · tsunami screening (not a coastal forecast)
+      </p>
+    </div>
+  );
 }
 
 export default function StoryMode({
@@ -119,38 +158,38 @@ export default function StoryMode({
       );
     }
     if (stage === 2 || stage === 3) {
-      const lat = Number(latitude);
-      const lon = Number(longitude);
-      // Simple equirectangular pin on a dark Earth plate (GIBS-inspired frame)
-      const x = ((lon + 180) / 360) * 100;
-      const y = ((90 - lat) / 180) * 100;
       return (
         <div className="story-hero story-hero-earth">
-          <div className="story-gibs-frame">
-            <div className="story-gibs-grid" />
-            <div className="story-impact-pin" style={{ left: `${x}%`, top: `${y}%` }}>
-              <span />
-            </div>
-            <div className="story-gibs-label">Earth view · impact coordinates</div>
-          </div>
-          <p className="story-hero-caption">
-            {fmt(lat, 2)}°N/S · {fmt(lon, 2)}°E/W · environment {String(surface)}
-          </p>
+          <GibsImpactView
+            latitude={latitude}
+            longitude={longitude}
+            surface={surface}
+          />
         </div>
       );
     }
     if (stage === 4) {
+      if (branch === "ocean" || surface === "ocean") {
+        return (
+          <div className="story-hero story-hero-risk">
+            <TsunamiAnim />
+          </div>
+        );
+      }
+      if (branch === "land" || surface === "land") {
+        return (
+          <div className="story-hero story-hero-risk">
+            <LandBlastCrater
+              craterKm={craterM != null ? craterM / 1000 : null}
+            />
+          </div>
+        );
+      }
       return (
         <div className="story-hero story-hero-risk">
-          <div className="story-risk-orb">{String(branch).toUpperCase()}</div>
+          <div className="story-risk-orb">UNKNOWN</div>
           <p className="story-hero-caption">
-            {branch === "land" && craterM != null
-              ? `Land screening crater ~${fmt(craterM / 1000, 2)} km`
-              : branch === "ocean"
-                ? "Ocean branch — tsunami screening, not land crater"
-                : branch === "undetermined" || surface === "unknown"
-                  ? "Environment unknown — consequences withheld"
-                  : "Relevant physics only for this branch"}
+            Environment unknown — crater and tsunami animations withheld
           </p>
         </div>
       );
@@ -196,9 +235,7 @@ export default function StoryMode({
             <header className="story-topbar">
               <div>
                 <p className="story-brand">METEOR MADNESS</p>
-                <h1>
-                  MISSION {missionNo} / 06
-                </h1>
+                <h1>MISSION {missionNo} / 06</h1>
               </div>
               <button type="button" className="story-close" onClick={() => setOpen(false)}>
                 Close
@@ -232,28 +269,22 @@ export default function StoryMode({
             <footer className="story-evidence">
               <div className="story-ev-card">
                 <span>ASTEROID</span>
-                <strong>
-                  {diamM != null ? `${fmt(diamM, 0)} m` : "—"}
-                </strong>
+                <strong>{diamM != null ? `${fmt(diamM, 0)} m` : "—"}</strong>
                 <small>
-                  {velKms != null ? `${fmt(velKms, 1)} km/s` : selectedAsteroid?.name || "NeoWs"}
+                  {velKms != null
+                    ? `${fmt(velKms, 1)} km/s`
+                    : selectedAsteroid?.name || "NeoWs"}
                 </small>
                 <KnowTip>
-                  Engine: NASA NeoWs via nasa_client. Inputs: live feed. Kind: observed catalogue
-                  values (diameter/velocity estimates). Limit: close-approach summary, not full
-                  orbit redesign.
+                  Engine: NASA NeoWs. Kind: observed catalogue estimates. Limit: not a full orbit redesign.
                 </KnowTip>
               </div>
               <div className="story-ev-card">
                 <span>LOCATION</span>
-                <strong>
-                  {fmt(Number(latitude), 2)}°
-                </strong>
+                <strong>{fmt(Number(latitude), 2)}°</strong>
                 <small>{fmt(Number(longitude), 2)}°</small>
                 <KnowTip>
-                  Engine: user scenario coordinates. Earth class from GEBCO via location_engine.
-                  Kind: user input + observed/modelled elevation. Limit: place names English via
-                  Nominatim; GEBCO can fail → unknown.
+                  GIBS imagery: NASA Worldview snapshot / Blue Marble tiles. Surface class: GEBCO.
                 </KnowTip>
               </div>
               <div className="story-ev-card">
@@ -267,8 +298,7 @@ export default function StoryMode({
                     : "awaiting run"}
                 </small>
                 <KnowTip>
-                  Engine: impact_environment branch after entry solver. Kind: calculated screening.
-                  Limit: not hydrocode; ocean never shows land crater.
+                  Risk animations are illustrative only — land: blast+crater; ocean: tsunami screen.
                 </KnowTip>
               </div>
             </footer>
