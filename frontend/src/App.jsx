@@ -6,6 +6,7 @@ import ConsequencesPanel from "./components/ConsequencesPanel";
 import EarthImpactMap from "./components/EarthImpactMap";
 import AnalystPanel from "./components/AnalystPanel";
 import RiskMitigationChat from "./components/RiskMitigationChat";
+import StoryMode from "./components/StoryMode";
 import { ensureEnrichment } from "./localEnrichment";
 
 function formatAsteroidOption(a) {
@@ -173,7 +174,7 @@ function App() {
           <h1>Meteor Madness</h1>
           <p>
             Hierarchical pipeline — NASA → entry → environment → physics branch
-            → AI analyst → Mitigation and more
+            → AI analyst → Mitigation and more · Story Mode
           </p>
         </header>
 
@@ -395,6 +396,19 @@ function App() {
           </>
         )}
       </main>
+
+      <StoryMode
+        asteroids={asteroids}
+        selectedAsteroid={selectedAsteroid}
+        simulation={simulation}
+        simulationData={simulationData}
+        environment={environment}
+        impactBranch={impactBranch}
+        analyst={analyst}
+        latitude={latitude}
+        longitude={longitude}
+        tsunami={tsunami}
+      />
 
       <RiskMitigationChat
         simulation={simulation}
