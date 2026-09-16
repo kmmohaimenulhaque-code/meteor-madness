@@ -1,62 +1,88 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Html, OrbitControls, Stars, Line } from "@react-three/drei";
+import {
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+import {
+  Canvas,
+  useFrame,
+  useThree,
+} from "@react-three/fiber";
+
+import {
+  Html,
+  Line,
+  OrbitControls,
+  Stars,
+} from "@react-three/drei";
+
 import * as THREE from "three";
+
 import "./MeteorMadness3D.css";
 
 const EARTH_RADIUS = 3;
 const DEG = Math.PI / 180;
 
+/* ========================================================================= */
+/* HELPERS                                                                   */
+/* ========================================================================= */
+
 function finiteNumber(value, fallback = 0) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function firstFinite(...values) {
   for (const value of values) {
-    const number = Number(value);
-    if (Number.isFinite(number)) return number;
+    const n = Number(value);
+
+    if (Number.isFinite(n)) {
+      return n;
+    }
   }
 
   return null;
 }
 
 function formatNumber(value, digits = 2) {
-  const number = Number(value);
+  const n = Number(value);
 
-  if (!Number.isFinite(number)) {
+  if (!Number.isFinite(n)) {
     return "—";
   }
 
-  return number.toLocaleString("en-GB", {
+  return n.toLocaleString("en-GB", {
     maximumFractionDigits: digits,
   });
 }
 
 function formatEnergy(value) {
-  const number = Number(value);
+  const n = Number(value);
 
-  if (!Number.isFinite(number)) {
+  if (!Number.isFinite(n)) {
     return "—";
   }
 
-  if (Math.abs(number) >= 1e15) {
-    return `${(number / 1e15).toFixed(2)} PJ`;
+  if (Math.abs(n) >= 1e15) {
+    return `${(n / 1e15).toFixed(2)} PJ`;
   }
 
-  if (Math.abs(number) >= 1e12) {
-    return `${(number / 1e12).toFixed(2)} TJ`;
+  if (Math.abs(n) >= 1e12) {
+    return `${(n / 1e12).toFixed(2)} TJ`;
   }
 
-  if (Math.abs(number) >= 1e9) {
-    return `${(number / 1e9).toFixed(2)} GJ`;
+  if (Math.abs(n) >= 1e9) {
+    return `${(n / 1e9).toFixed(2)} GJ`;
   }
 
-  if (Math.abs(number) >= 1e6) {
-    return `${(number / 1e6).toFixed(2)} MJ`;
+  if (Math.abs(n) >= 1e6) {
+    return `${(n / 1e6).toFixed(2)} MJ`;
   }
 
-  return `${number.toExponential(2)} J`;
+  return `${n.toExponential(2)} J`;
 }
 
 function latLonToVector3(
@@ -112,7 +138,10 @@ function getImpactCoordinates(
   };
 }
 
-function getEntryCoordinates(trajectory, impact) {
+function getEntryCoordinates(
+  trajectory,
+  impact
+) {
   return {
     latitude: firstFinite(
       trajectory?.entry_latitude_deg,
@@ -128,7 +157,14 @@ function getEntryCoordinates(trajectory, impact) {
   };
 }
 
-function makeTrajectoryCurve(entryPosition, impactPosition) {
+/* ========================================================================= */
+/* TRAJECTORY                                                                 */
+/* ========================================================================= */
+
+function createTrajectoryCurve(
+  entryPosition,
+  impactPosition
+) {
   const start = entryPosition
     .clone()
     .normalize()
@@ -139,7 +175,9 @@ function makeTrajectoryCurve(entryPosition, impactPosition) {
     .normalize()
     .multiplyScalar(EARTH_RADIUS * 1.035);
 
-  const midpoint = start.clone().lerp(end, 0.48);
+  const midpoint = start
+    .clone()
+    .lerp(end, 0.48);
 
   midpoint.y += 2.35;
 
@@ -150,23 +188,35 @@ function makeTrajectoryCurve(entryPosition, impactPosition) {
   ]);
 }
 
-/* -------------------------------------------------------------------------- */
-/* EARTH GRID                                                                  */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================= */
+/* EARTH GRID                                                                 */
+/* ========================================================================= */
 
 function EarthGrid() {
   const lines = useMemo(() => {
     const result = [];
 
-    // Latitude lines
-    for (let latitude = -75; latitude <= 75; latitude += 15) {
+    // Latitude
+    for (
+      let latitude = -75;
+      latitude <= 75;
+      latitude += 15
+    ) {
       const points = [];
 
       const lat = latitude * DEG;
-      const radius = EARTH_RADIUS * Math.cos(lat);
-      const y = EARTH_RADIUS * Math.sin(lat);
 
-      for (let longitude = 0; longitude <= 360; longitude += 3) {
+      const radius =
+        EARTH_RADIUS * Math.cos(lat);
+
+      const y =
+        EARTH_RADIUS * Math.sin(lat);
+
+      for (
+        let longitude = 0;
+        longitude <= 360;
+        longitude += 3
+      ) {
         const lon = longitude * DEG;
 
         points.push(
@@ -181,11 +231,19 @@ function EarthGrid() {
       result.push(points);
     }
 
-    // Longitude lines
-    for (let longitude = 0; longitude < 180; longitude += 15) {
+    // Longitude
+    for (
+      let longitude = 0;
+      longitude < 180;
+      longitude += 15
+    ) {
       const points = [];
 
-      for (let latitude = -90; latitude <= 90; latitude += 3) {
+      for (
+        let latitude = -90;
+        latitude <= 90;
+        latitude += 3
+      ) {
         points.push(
           latLonToVector3(
             latitude,
@@ -220,7 +278,7 @@ function EarthGrid() {
           points={points}
           color="#67b7e8"
           transparent
-          opacity={0.11}
+          opacity={0.1}
           lineWidth={0.5}
         />
       ))}
@@ -228,30 +286,35 @@ function EarthGrid() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* ATMOSPHERE                                                                  */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================= */
+/* ATMOSPHERE                                                                 */
+/* ========================================================================= */
 
 function Atmosphere() {
-  const atmosphereRef = useRef(null);
+  const ref = useRef(null);
 
   useFrame((state) => {
-    if (!atmosphereRef.current) {
-      return;
-    }
+    if (!ref.current) return;
 
     const pulse =
       1 +
-      Math.sin(state.clock.elapsedTime * 0.8) * 0.003;
+      Math.sin(
+        state.clock.elapsedTime * 0.8
+      ) *
+        0.003;
 
-    atmosphereRef.current.scale.setScalar(pulse);
+    ref.current.scale.setScalar(pulse);
   });
 
   return (
-    <group ref={atmosphereRef}>
+    <group ref={ref}>
       <mesh>
         <sphereGeometry
-          args={[EARTH_RADIUS * 1.045, 64, 64]}
+          args={[
+            EARTH_RADIUS * 1.045,
+            64,
+            64,
+          ]}
         />
 
         <meshBasicMaterial
@@ -264,7 +327,11 @@ function Atmosphere() {
 
       <mesh>
         <sphereGeometry
-          args={[EARTH_RADIUS * 1.075, 48, 48]}
+          args={[
+            EARTH_RADIUS * 1.075,
+            48,
+            48,
+          ]}
         />
 
         <meshBasicMaterial
@@ -278,24 +345,28 @@ function Atmosphere() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* EARTH                                                                       */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================= */
+/* EARTH                                                                      */
+/* ========================================================================= */
 
 function Earth({ spin }) {
-  const earthRef = useRef(null);
+  const ref = useRef(null);
 
   useFrame((_, delta) => {
-    if (spin && earthRef.current) {
-      earthRef.current.rotation.y += delta * 0.025;
+    if (spin && ref.current) {
+      ref.current.rotation.y += delta * 0.025;
     }
   });
 
   return (
-    <group ref={earthRef}>
+    <group ref={ref}>
       <mesh>
         <sphereGeometry
-          args={[EARTH_RADIUS, 96, 96]}
+          args={[
+            EARTH_RADIUS,
+            96,
+            96,
+          ]}
         />
 
         <meshStandardMaterial
@@ -307,7 +378,11 @@ function Earth({ spin }) {
 
       <mesh scale={1.003}>
         <sphereGeometry
-          args={[EARTH_RADIUS, 64, 64]}
+          args={[
+            EARTH_RADIUS,
+            64,
+            64,
+          ]}
         />
 
         <meshBasicMaterial
@@ -319,34 +394,14 @@ function Earth({ spin }) {
       </mesh>
 
       <EarthGrid />
-
       <Atmosphere />
-
-      <mesh
-        rotation={[
-          0.35,
-          0.2,
-          0.1,
-        ]}
-      >
-        <sphereGeometry
-          args={[EARTH_RADIUS * 1.008, 48, 48]}
-        />
-
-        <meshBasicMaterial
-          color="#bae6fd"
-          transparent
-          opacity={0.025}
-          wireframe
-        />
-      </mesh>
     </group>
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* ORBITAL RINGS                                                               */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================= */
+/* ORBITAL RINGS                                                              */
+/* ========================================================================= */
 
 function OrbitalRings() {
   const rings = [
@@ -357,9 +412,8 @@ function OrbitalRings() {
         0.2,
         0,
       ],
-      opacity: 0.18,
+      opacity: 0.17,
     },
-
     {
       radius: 4.65,
       rotation: [
@@ -367,9 +421,8 @@ function OrbitalRings() {
         -0.4,
         0.7,
       ],
-      opacity: 0.11,
+      opacity: 0.1,
     },
-
     {
       radius: 5.2,
       rotation: [
@@ -377,7 +430,7 @@ function OrbitalRings() {
         0.8,
         -0.3,
       ],
-      opacity: 0.08,
+      opacity: 0.075,
     },
   ];
 
@@ -408,75 +461,60 @@ function OrbitalRings() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* TRAJECTORY                                                                  */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================= */
+/* TRAJECTORY VISUAL                                                          */
+/* ========================================================================= */
 
-function TrajectoryLine({
-  entryPosition,
-  impactPosition,
-  progress,
+function TrajectoryVisual({
+  curve,
+  active,
+  deflected,
 }) {
-  const curve = useMemo(
-    () =>
-      makeTrajectoryCurve(
-        entryPosition,
-        impactPosition
-      ),
-    [entryPosition, impactPosition]
-  );
-
   const points = useMemo(
     () => curve.getPoints(120),
     [curve]
   );
 
-  const travelled = Math.max(
-    2,
-    Math.floor(
-      points.length *
-        Math.max(progress, 0.08)
-    )
-  );
-
   return (
-    <group>
-      {/* Full predicted corridor */}
+    <>
       <Line
         points={points}
-        color="#fbbf24"
+        color={
+          deflected
+            ? "#22c55e"
+            : "#fbbf24"
+        }
         transparent
-        opacity={0.22}
-        lineWidth={1}
+        opacity={active ? 0.55 : 0.25}
+        lineWidth={1.15}
         dashed
         dashSize={0.08}
         gapSize={0.05}
       />
 
-      {/* Active travelled path */}
       <Line
-        points={points.slice(0, travelled)}
+        points={points.slice(0, 70)}
         color="#f8fafc"
         transparent
-        opacity={0.92}
-        lineWidth={1.8}
+        opacity={active ? 0.8 : 0.2}
+        lineWidth={1.4}
       />
-    </group>
+    </>
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* METEOR                                                                      */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================= */
+/* METEOR                                                                     */
+/* ========================================================================= */
 
 function Meteor({
   curve,
   playing,
   speed,
+  deflected,
   onImpact,
 }) {
-  const meteorRef = useRef(null);
-  const trailRef = useRef(null);
+  const groupRef = useRef(null);
   const progressRef = useRef(0);
   const impactTriggered = useRef(false);
 
@@ -486,224 +524,72 @@ function Meteor({
   }, [playing, curve]);
 
   useFrame((_, delta) => {
-    if (!playing) {
-      return;
+    if (!groupRef.current) return;
+
+    if (playing && !deflected) {
+      const next = Math.min(
+        1,
+        progressRef.current +
+          (speed * delta) / 4.2
+      );
+
+      progressRef.current = next;
+
+      if (
+        next >= 1 &&
+        !impactTriggered.current
+      ) {
+        impactTriggered.current = true;
+        onImpact?.();
+      }
     }
 
-    const progress = progressRef.current;
-
-    const next = Math.min(
-      1,
-      progress + (speed * delta) / 4.2
-    );
-
-    progressRef.current = next;
-
-    if (
-      next >= 1 &&
-      !impactTriggered.current
-    ) {
-      impactTriggered.current = true;
-      onImpact?.();
-    }
-
-    if (meteorRef.current) {
-      meteorRef.current.rotation.x +=
-        delta * 3.2;
-
-      meteorRef.current.rotation.y +=
-        delta * 2.1;
-    }
-
-    if (trailRef.current) {
-      trailRef.current.rotation.z +=
-        delta * 0.9;
-    }
-  });
-
-  const progress = THREE.MathUtils.clamp(
-    progressRef.current,
-    0,
-    1
-  );
-
-  const position = curve.getPointAt(progress);
-
-  const direction = curve
-    .getTangentAt(
+    const progress =
       THREE.MathUtils.clamp(
-        progress,
+        progressRef.current,
         0,
-        0.999
-      )
-    )
-    .normalize();
+        1
+      );
 
-  const meteorScale =
-    THREE.MathUtils.lerp(
-      0.09,
-      0.22,
-      progress
+    const position =
+      curve.getPointAt(progress);
+
+    groupRef.current.position.copy(
+      position
     );
 
-  return (
-    <group position={position}>
-      <group ref={meteorRef}>
-        {/* Main rock */}
-        <mesh scale={meteorScale}>
-          <icosahedronGeometry args={[1, 2]} />
+    groupRef.current.rotation.x +=
+      delta * 3;
 
-          <meshStandardMaterial
-            color="#7c2d12"
-            roughness={0.92}
-            metalness={0.04}
-          />
-        </mesh>
-
-        {/* Hot core */}
-        <mesh
-          scale={meteorScale * 0.55}
-        >
-          <icosahedronGeometry args={[1, 1]} />
-
-          <meshBasicMaterial
-            color="#fff7ed"
-          />
-        </mesh>
-      </group>
-
-      {/* Fire trail */}
-      <group ref={trailRef}>
-        <Line
-          points={[
-            position
-              .clone()
-              .add(
-                direction
-                  .clone()
-                  .multiplyScalar(
-                    -0.45 -
-                      progress * 0.8
-                  )
-              ),
-
-            position
-              .clone()
-              .add(
-                direction
-                  .clone()
-                  .multiplyScalar(-0.18)
-              ),
-
-            position.clone(),
-          ]}
-          color="#fb923c"
-          transparent
-          opacity={0.9}
-          lineWidth={2.8}
-        />
-
-        <mesh
-          position={direction
-            .clone()
-            .multiplyScalar(-0.3)}
-          scale={
-            0.18 +
-            progress * 0.12
-          }
-        >
-          <sphereGeometry
-            args={[1, 16, 16]}
-          />
-
-          <meshBasicMaterial
-            color="#f97316"
-            transparent
-            opacity={0.16}
-          />
-        </mesh>
-      </group>
-    </group>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* IMPACT MARKER                                                               */
-/* -------------------------------------------------------------------------- */
-
-function ImpactMarker({
-  position,
-  craterDiameter,
-  exploded,
-}) {
-  const ringRef = useRef(null);
-  const beamRef = useRef(null);
-
-  const craterScale =
-    THREE.MathUtils.clamp(
-      finiteNumber(
-        craterDiameter,
-        500
-      ) / 900,
-      0.7,
-      2.5
-    );
-
-  useFrame((state) => {
-    const time =
-      state.clock.elapsedTime;
-
-    if (ringRef.current) {
-      ringRef.current.rotation.z =
-        time * 0.3;
-    }
-
-    if (beamRef.current) {
-      beamRef.current.scale.y =
-        0.85 +
-        Math.sin(time * 3.5) *
-          0.12;
-    }
+    groupRef.current.rotation.y +=
+      delta * 2;
   });
 
+  const initialPosition =
+    curve.getPointAt(1);
+
   return (
-    <group position={position}>
-      {/* Target ring */}
+    <group
+      ref={groupRef}
+      position={initialPosition}
+    >
       <mesh
-        ref={ringRef}
-        rotation-x={Math.PI / 2}
-        scale={craterScale}
+        scale={0.17}
       >
-        <torusGeometry
-          args={[
-            0.19,
-            0.026,
-            12,
-            96,
-          ]}
+        <icosahedronGeometry
+          args={[1, 2]}
         />
 
-        <meshBasicMaterial
-          color="#fb923c"
-          transparent
-          opacity={
-            exploded
-              ? 0.98
-              : 0.8
-          }
+        <meshStandardMaterial
+          color="#7c2d12"
+          roughness={0.92}
+          metalness={0.04}
         />
       </mesh>
 
-      {/* Target centre */}
-      <mesh
-        scale={
-          exploded
-            ? 0.18
-            : 0.09
-        }
-      >
-        <sphereGeometry
-          args={[1, 20, 20]}
+      <mesh scale={0.55}>
+        <icosahedronGeometry
+          args={[0.6, 1]}
         />
 
         <meshBasicMaterial
@@ -711,82 +597,176 @@ function ImpactMarker({
         />
       </mesh>
 
-      {/* Vertical target beam */}
-      <mesh
-        ref={beamRef}
-        position={[0, 0.24, 0]}
-      >
-        <cylinderGeometry
-          args={[
-            0.006,
-            0.018,
-            0.5,
-            12,
-          ]}
+      <mesh scale={0.9}>
+        <sphereGeometry
+          args={[0.5, 16, 16]}
         />
 
         <meshBasicMaterial
           color="#f97316"
           transparent
-          opacity={0.75}
+          opacity={0.12}
         />
       </mesh>
 
-      {exploded && (
+      <pointLight
+        color="#f97316"
+        intensity={2.2}
+        distance={1.8}
+      />
+    </group>
+  );
+}
+
+/* ========================================================================= */
+/* METEOR TRAIL                                                               */
+/* ========================================================================= */
+
+function MeteorTrail({
+  curve,
+  playing,
+}) {
+  const points = useMemo(
+    () => curve.getPoints(80),
+    [curve]
+  );
+
+  if (!playing) {
+    return null;
+  }
+
+  return (
+    <Line
+      points={points.slice(20, 80)}
+      color="#fb923c"
+      transparent
+      opacity={0.25}
+      lineWidth={2}
+    />
+  );
+}
+
+/* ========================================================================= */
+/* IMPACT MARKER                                                              */
+/* ========================================================================= */
+
+function ImpactMarker({
+  position,
+  active,
+}) {
+  const ringRef = useRef(null);
+
+  useFrame((state) => {
+    if (!ringRef.current) return;
+
+    ringRef.current.rotation.z =
+      state.clock.elapsedTime * 0.4;
+
+    const pulse =
+      1 +
+      Math.sin(
+        state.clock.elapsedTime * 4
+      ) *
+        0.08;
+
+    ringRef.current.scale.setScalar(
+      pulse
+    );
+  });
+
+  return (
+    <group position={position}>
+      <mesh
+        ref={ringRef}
+        rotation-x={Math.PI / 2}
+      >
+        <torusGeometry
+          args={[
+            0.24,
+            0.028,
+            12,
+            96,
+          ]}
+        />
+
+        <meshBasicMaterial
+          color={
+            active
+              ? "#ef4444"
+              : "#fb923c"
+          }
+        />
+      </mesh>
+
+      <mesh
+        scale={
+          active ? 0.15 : 0.08
+        }
+      >
+        <sphereGeometry
+          args={[
+            1,
+            20,
+            20,
+          ]}
+        />
+
+        <meshBasicMaterial
+          color="#fff7ed"
+        />
+      </mesh>
+
+      {active && (
         <pointLight
-          distance={3.5}
-          intensity={3.5}
-          color="#fb923c"
+          color="#ef4444"
+          intensity={3}
+          distance={3}
         />
       )}
     </group>
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* IMPACT EXPLOSION                                                            */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================= */
+/* IMPACT EXPLOSION                                                           */
+/* ========================================================================= */
 
 function ImpactExplosion({
   position,
   active,
-  impactEnergy,
+  energy,
 }) {
   const groupRef = useRef(null);
-  const startTime = useRef(null);
+  const startRef = useRef(null);
 
   useEffect(() => {
-    if (!active) {
-      startTime.current = null;
-      return;
+    if (active) {
+      startRef.current =
+        performance.now();
+    } else {
+      startRef.current = null;
     }
-
-    startTime.current =
-      performance.now();
   }, [active]);
 
   useFrame(() => {
     if (
       !active ||
-      startTime.current === null ||
-      !groupRef.current
+      !groupRef.current ||
+      startRef.current === null
     ) {
       return;
     }
 
     const elapsed =
       (performance.now() -
-        startTime.current) /
+        startRef.current) /
       1000;
 
     const energyScale =
       THREE.MathUtils.clamp(
         Math.log10(
           Math.max(
-            finiteNumber(
-              impactEnergy,
-              1
-            ),
+            finiteNumber(energy, 1),
             1
           )
         ) / 10,
@@ -794,24 +774,20 @@ function ImpactExplosion({
         2.8
       );
 
-    const expansion = Math.min(
-      elapsed *
-        2.4 *
-        energyScale,
-      4.2
-    );
-
-    const opacity = Math.max(
-      0,
-      1 - elapsed / 3.8
+    const scale = Math.min(
+      0.15 +
+        elapsed *
+          1.8 *
+          energyScale,
+      4
     );
 
     groupRef.current.scale.setScalar(
-      0.14 + expansion * 0.18
+      scale
     );
 
-    groupRef.current.userData.opacity =
-      opacity;
+    groupRef.current.rotation.z +=
+      0.01;
   });
 
   if (!active) {
@@ -823,20 +799,22 @@ function ImpactExplosion({
       ref={groupRef}
       position={position}
     >
-      {/* Fireball */}
       <mesh>
         <sphereGeometry
-          args={[1, 32, 32]}
+          args={[
+            0.55,
+            32,
+            32,
+          ]}
         />
 
         <meshBasicMaterial
           color="#fb923c"
           transparent
-          opacity={0.38}
+          opacity={0.42}
         />
       </mesh>
 
-      {/* Shockwave rings */}
       {[0, 1, 2].map(
         (index) => (
           <mesh
@@ -846,17 +824,14 @@ function ImpactExplosion({
             }
             scale={
               1 +
-              index * 0.35
+              index * 0.4
             }
           >
             <torusGeometry
               args={[
-                0.28 +
-                  index *
-                    0.08,
-                0.018 -
-                  index *
-                    0.004,
+                0.3 +
+                  index * 0.1,
+                0.018,
                 10,
                 96,
               ]}
@@ -870,8 +845,8 @@ function ImpactExplosion({
               }
               transparent
               opacity={
-                0.8 -
-                index * 0.16
+                0.85 -
+                index * 0.18
               }
             />
           </mesh>
@@ -879,26 +854,428 @@ function ImpactExplosion({
       )}
 
       <pointLight
-        intensity={4}
-        distance={6}
         color="#fb923c"
+        intensity={5}
+        distance={6}
       />
     </group>
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* CAMERA                                                                      */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================= */
+/* DEFENCE INTERCEPTOR                                                        */
+/* ========================================================================= */
+
+function DefenceInterceptor({
+  active,
+  progress,
+  targetPosition,
+  onIntercept,
+}) {
+  const groupRef = useRef(null);
+  const triggeredRef = useRef(false);
+
+  const startPosition = targetPosition
+    .clone()
+    .normalize()
+    .multiplyScalar(8);
+
+  const midPosition = startPosition
+    .clone()
+    .lerp(
+      targetPosition
+        .clone()
+        .normalize()
+        .multiplyScalar(4.5),
+      0.5
+    );
+
+  midPosition.y += 1.5;
+
+  const curve = useMemo(
+    () =>
+      new THREE.CatmullRomCurve3([
+        startPosition,
+        midPosition,
+        targetPosition,
+      ]),
+    [targetPosition]
+  );
+
+  useEffect(() => {
+    triggeredRef.current = false;
+  }, [active]);
+
+  useFrame((_, delta) => {
+    if (!active || !groupRef.current) {
+      return;
+    }
+
+    const p =
+      THREE.MathUtils.clamp(
+        progress,
+        0,
+        1
+      );
+
+    const position =
+      curve.getPointAt(p);
+
+    groupRef.current.position.copy(
+      position
+    );
+
+    groupRef.current.rotation.x +=
+      delta * 2;
+
+    groupRef.current.rotation.y +=
+      delta * 3;
+
+    if (
+      p >= 0.98 &&
+      !triggeredRef.current
+    ) {
+      triggeredRef.current = true;
+      onIntercept?.();
+    }
+  });
+
+  if (!active) {
+    return null;
+  }
+
+  return (
+    <group
+      ref={groupRef}
+      position={startPosition}
+    >
+      {/* spacecraft body */}
+      <mesh>
+        <boxGeometry
+          args={[
+            0.18,
+            0.11,
+            0.34,
+          ]}
+        />
+
+        <meshStandardMaterial
+          color="#e2e8f0"
+          metalness={0.85}
+          roughness={0.22}
+        />
+      </mesh>
+
+      {/* left panel */}
+      <mesh
+        position={[
+          -0.25,
+          0,
+          0,
+        ]}
+      >
+        <boxGeometry
+          args={[
+            0.32,
+            0.012,
+            0.14,
+          ]}
+        />
+
+        <meshBasicMaterial
+          color="#2563eb"
+        />
+      </mesh>
+
+      {/* right panel */}
+      <mesh
+        position={[
+          0.25,
+          0,
+          0,
+        ]}
+      >
+        <boxGeometry
+          args={[
+            0.32,
+            0.012,
+            0.14,
+          ]}
+        />
+
+        <meshBasicMaterial
+          color="#2563eb"
+        />
+      </mesh>
+
+      {/* engine */}
+      <mesh
+        position={[
+          0,
+          0,
+          0.23,
+        ]}
+      >
+        <sphereGeometry
+          args={[
+            0.045,
+            12,
+            12,
+          ]}
+        />
+
+        <meshBasicMaterial
+          color="#22d3ee"
+        />
+      </mesh>
+
+      <pointLight
+        color="#22d3ee"
+        intensity={2}
+        distance={1.5}
+      />
+    </group>
+  );
+}
+
+/* ========================================================================= */
+/* DEFENCE ORBIT                                                              */
+/* ========================================================================= */
+
+function DefenceTrajectory({
+  targetPosition,
+  active,
+}) {
+  const curve = useMemo(() => {
+    if (!active) return null;
+
+    const start =
+      targetPosition
+        .clone()
+        .normalize()
+        .multiplyScalar(8);
+
+    const mid = start
+      .clone()
+      .lerp(
+        targetPosition,
+        0.5
+      );
+
+    mid.y += 1.5;
+
+    return new THREE.CatmullRomCurve3([
+      start,
+      mid,
+      targetPosition,
+    ]);
+  }, [
+    targetPosition,
+    active,
+  ]);
+
+  if (!curve) {
+    return null;
+  }
+
+  return (
+    <Line
+      points={curve.getPoints(80)}
+      color="#22d3ee"
+      transparent
+      opacity={0.65}
+      lineWidth={1.3}
+      dashed
+      dashSize={0.08}
+      gapSize={0.05}
+    />
+  );
+}
+
+/* ========================================================================= */
+/* DEFLECTION                                                                  */
+/* ========================================================================= */
+
+function DeflectionPath({
+  position,
+  active,
+}) {
+  if (!active) {
+    return null;
+  }
+
+  const normal =
+    position
+      .clone()
+      .normalize();
+
+  const tangent = new THREE.Vector3(
+    -normal.z,
+    0.5,
+    normal.x
+  ).normalize();
+
+  const end = position
+    .clone()
+    .add(
+      tangent.multiplyScalar(2.4)
+    );
+
+  return (
+    <>
+      <Line
+        points={[
+          position,
+          end,
+        ]}
+        color="#22c55e"
+        transparent
+        opacity={0.9}
+        lineWidth={2.2}
+      />
+
+      <Line
+        points={[
+          position,
+          end.clone().add(
+            new THREE.Vector3(
+              0.4,
+              0.15,
+              -0.3
+            )
+          ),
+        ]}
+        color="#22c55e"
+        transparent
+        opacity={0.25}
+        lineWidth={5}
+      />
+
+      <mesh position={end}>
+        <sphereGeometry
+          args={[
+            0.07,
+            16,
+            16,
+          ]}
+        />
+
+        <meshBasicMaterial
+          color="#22c55e"
+        />
+      </mesh>
+    </>
+  );
+}
+
+/* ========================================================================= */
+/* INTERCEPT FLASH                                                            */
+/* ========================================================================= */
+
+function InterceptFlash({
+  position,
+  active,
+}) {
+  const ref = useRef(null);
+  const startRef = useRef(null);
+
+  useEffect(() => {
+    if (active) {
+      startRef.current =
+        performance.now();
+    } else {
+      startRef.current = null;
+    }
+  }, [active]);
+
+  useFrame(() => {
+    if (
+      !active ||
+      !ref.current ||
+      startRef.current === null
+    ) {
+      return;
+    }
+
+    const elapsed =
+      (performance.now() -
+        startRef.current) /
+      1000;
+
+    ref.current.scale.setScalar(
+      Math.min(
+        0.15 + elapsed * 1.7,
+        2.7
+      )
+    );
+
+    ref.current.rotation.z +=
+      0.02;
+  });
+
+  if (!active) {
+    return null;
+  }
+
+  return (
+    <group
+      ref={ref}
+      position={position}
+    >
+      <mesh>
+        <sphereGeometry
+          args={[
+            0.4,
+            32,
+            32,
+          ]}
+        />
+
+        <meshBasicMaterial
+          color="#22d3ee"
+          transparent
+          opacity={0.35}
+        />
+      </mesh>
+
+      <mesh
+        rotation-x={
+          Math.PI / 2
+        }
+      >
+        <torusGeometry
+          args={[
+            0.45,
+            0.025,
+            12,
+            96,
+          ]}
+        />
+
+        <meshBasicMaterial
+          color="#67e8f9"
+        />
+      </mesh>
+
+      <pointLight
+        color="#22d3ee"
+        intensity={5}
+        distance={5}
+      />
+    </group>
+  );
+}
+
+/* ========================================================================= */
+/* CAMERA                                                                     */
+/* ========================================================================= */
 
 function CameraRig({
   mode,
   impactPosition,
 }) {
   const { camera } = useThree();
-
-  const controlsRef =
-    useRef(null);
+  const controlsRef = useRef(null);
 
   useEffect(() => {
     const presets = {
@@ -975,82 +1352,30 @@ function CameraRig({
       dampingFactor={0.06}
       rotateSpeed={0.55}
       minDistance={4.2}
-      maxDistance={17}
+      maxDistance={18}
     />
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* IMPACT LABEL                                                                */
-/* -------------------------------------------------------------------------- */
-
-function ImpactLabel({
-  position,
-  latitude,
-  longitude,
-  surface,
-  exploded,
-}) {
-  return (
-    <group position={position}>
-      <Html
-        center
-        distanceFactor={8}
-        position={[0, 0.42, 0]}
-      >
-        <div
-          className={`meteor-3d-label ${
-            exploded
-              ? "is-live"
-              : ""
-          }`}
-        >
-          <strong>
-            {exploded
-              ? "IMPACT DETECTED"
-              : "MODELLED IMPACT"}
-          </strong>
-
-          <span>
-            {formatNumber(
-              latitude,
-              4
-            )}
-            ° &nbsp;
-            {formatNumber(
-              longitude,
-              4
-            )}
-            °
-          </span>
-
-          <small>
-            {String(
-              surface || "UNKNOWN"
-            ).toUpperCase()}
-          </small>
-        </div>
-      </Html>
-    </group>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* SCENE                                                                       */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================= */
+/* SCENE                                                                      */
+/* ========================================================================= */
 
 function Scene({
   trajectory,
   latitude,
   longitude,
-  surface,
-  craterDiameter,
-  impactEnergy,
   playing,
   speed,
   cameraMode,
   spinEarth,
+  defenceActive,
+  defenceProgress,
+  deflected,
+  defenceTarget,
+  impactEnergy,
   onImpact,
+  onIntercept,
 }) {
   const impact = useMemo(
     () =>
@@ -1072,7 +1397,10 @@ function Scene({
         trajectory,
         impact
       ),
-    [trajectory, impact]
+    [
+      trajectory,
+      impact,
+    ]
   );
 
   const impactPosition = useMemo(
@@ -1080,8 +1408,7 @@ function Scene({
       latLonToVector3(
         impact.latitude,
         impact.longitude,
-        EARTH_RADIUS *
-          1.015
+        EARTH_RADIUS * 1.015
       ),
     [impact]
   );
@@ -1096,9 +1423,9 @@ function Scene({
     [entry]
   );
 
-  const curve = useMemo(
+  const trajectoryCurve = useMemo(
     () =>
-      makeTrajectoryCurve(
+      createTrajectoryCurve(
         entryPosition,
         impactPosition
       ),
@@ -1108,13 +1435,39 @@ function Scene({
     ]
   );
 
+  const defenceTargetPosition =
+    useMemo(() => {
+      if (
+        defenceTarget ===
+        "early"
+      ) {
+        return latLonToVector3(
+          impact.latitude + 12,
+          impact.longitude + 25,
+          EARTH_RADIUS * 1.35
+        );
+      }
+
+      return impactPosition;
+    }, [
+      defenceTarget,
+      impact,
+      impactPosition,
+    ]);
+
   const [
-    exploded,
-    setExploded,
+    impactDetected,
+    setImpactDetected,
+  ] = useState(false);
+
+  const [
+    interceptDetected,
+    setInterceptDetected,
   ] = useState(false);
 
   useEffect(() => {
-    setExploded(false);
+    setImpactDetected(false);
+    setInterceptDetected(false);
   }, [
     impact.latitude,
     impact.longitude,
@@ -1122,15 +1475,22 @@ function Scene({
   ]);
 
   function handleImpact() {
-    setExploded(true);
+    setImpactDetected(true);
     onImpact?.();
+  }
+
+  function handleIntercept() {
+    setInterceptDetected(true);
+    onIntercept?.();
   }
 
   return (
     <>
       <color
         attach="background"
-        args={["#010611"]}
+        args={[
+          "#010611",
+        ]}
       />
 
       <fog
@@ -1138,7 +1498,7 @@ function Scene({
         args={[
           "#010611",
           14,
-          30,
+          32,
         ]}
       />
 
@@ -1177,86 +1537,103 @@ function Scene({
 
       <OrbitalRings />
 
-      <Earth
-        spin={spinEarth}
+      <Earth spin={spinEarth} />
+
+      <TrajectoryVisual
+        curve={trajectoryCurve}
+        active={playing}
+        deflected={deflected}
       />
 
-      <TrajectoryLine
-        entryPosition={
-          entryPosition
-        }
-        impactPosition={
-          impactPosition
-        }
-        progress={
-          playing ? 0.5 : 1
-        }
+      <MeteorTrail
+        curve={trajectoryCurve}
+        playing={playing}
       />
 
       <Meteor
-        curve={curve}
+        curve={trajectoryCurve}
         playing={playing}
         speed={speed}
-        onImpact={
-          handleImpact
-        }
+        deflected={deflected}
+        onImpact={handleImpact}
       />
 
       <ImpactMarker
-        position={
-          impactPosition
-        }
-        craterDiameter={
-          craterDiameter
-        }
-        exploded={
-          exploded
-        }
+        position={impactPosition}
+        active={impactDetected}
       />
 
       <ImpactExplosion
-        position={
-          impactPosition
+        position={impactPosition}
+        active={impactDetected}
+        energy={impactEnergy}
+      />
+
+      <DefenceTrajectory
+        targetPosition={
+          defenceTargetPosition
         }
-        active={
-          exploded
+        active={defenceActive}
+      />
+
+      <DefenceInterceptor
+        active={defenceActive}
+        progress={defenceProgress}
+        targetPosition={
+          defenceTargetPosition
         }
-        impactEnergy={
-          impactEnergy
+        onIntercept={
+          handleIntercept
         }
       />
 
-      <ImpactLabel
+      <InterceptFlash
         position={
-          impactPosition
+          defenceTargetPosition
         }
-        latitude={
-          impact.latitude
+        active={interceptDetected}
+      />
+
+      <DeflectionPath
+        position={
+          defenceTargetPosition
         }
-        longitude={
-          impact.longitude
-        }
-        surface={
-          surface
-        }
-        exploded={
-          exploded
-        }
+        active={deflected}
       />
 
       <CameraRig
         mode={cameraMode}
-        impactPosition={
-          impactPosition
-        }
+        impactPosition={impactPosition}
       />
+
+      {interceptDetected && (
+        <Html
+          position={[
+            defenceTargetPosition.x,
+            defenceTargetPosition.y + 0.5,
+            defenceTargetPosition.z,
+          ]}
+          center
+        >
+          <div className="meteor-3d-intercept-label">
+            <strong>
+              INTERCEPT CONFIRMED
+            </strong>
+
+            <span>
+              TRAJECTORY MODIFICATION
+              DETECTED
+            </span>
+          </div>
+        </Html>
+      )}
     </>
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* MAIN COMPONENT                                                              */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================= */
+/* MAIN COMPONENT                                                             */
+/* ========================================================================= */
 
 export default function MeteorMadness3D({
   simulation,
@@ -1267,30 +1644,35 @@ export default function MeteorMadness3D({
   latitude,
   longitude,
 }) {
-  const [
-    playing,
-    setPlaying,
-  ] = useState(false);
+  const [playing, setPlaying] =
+    useState(false);
 
-  const [
-    speed,
-    setSpeed,
-  ] = useState(1);
+  const [speed, setSpeed] =
+    useState(1);
 
-  const [
-    cameraMode,
-    setCameraMode,
-  ] = useState("globe");
+  const [cameraMode, setCameraMode] =
+    useState("globe");
 
-  const [
-    impactPulse,
-    setImpactPulse,
-  ] = useState(false);
+  const [spinEarth, setSpinEarth] =
+    useState(true);
 
-  const [
-    spinEarth,
-    setSpinEarth,
-  ] = useState(true);
+  const [defenceActive, setDefenceActive] =
+    useState(false);
+
+  const [defenceProgress, setDefenceProgress] =
+    useState(0);
+
+  const [defenceTarget, setDefenceTarget] =
+    useState("impact");
+
+  const [defenceMode, setDefenceMode] =
+    useState("kinetic");
+
+  const [deflected, setDeflected] =
+    useState(false);
+
+  const [missionStatus, setMissionStatus] =
+    useState("TRACKING");
 
   const trajectory =
     simulation?.trajectory ??
@@ -1331,35 +1713,20 @@ export default function MeteorMadness3D({
 
   const impactEnergy =
     firstFinite(
-      simulationData
-        ?.impact_energy_J,
-
-      simulationData
-        ?.impact_energy,
-
-      simulation
-        ?.impact_energy_J,
-
-      consequences
-        ?.impact_energy_J,
-
-      consequences
-        ?.impact_energy
+      simulationData?.impact_energy_J,
+      simulationData?.impact_energy,
+      simulation?.impact_energy_J,
+      consequences?.impact_energy_J,
+      consequences?.impact_energy
     );
 
   const impactVelocity =
     firstFinite(
-      simulationData
-        ?.impact_velocity_mps,
+      simulationData?.impact_velocity_mps,
+      simulationData?.velocity_mps,
+      simulationData?.final_velocity_mps,
 
-      simulationData
-        ?.velocity_mps,
-
-      simulationData
-        ?.final_velocity_mps,
-
-      selectedAsteroid
-        ?.velocity_kph != null
+      selectedAsteroid?.velocity_kph != null
         ? Number(
             selectedAsteroid.velocity_kph
           ) / 3.6
@@ -1373,33 +1740,137 @@ export default function MeteorMadness3D({
       longitude
     );
 
-  function runSequence() {
-    setImpactPulse(false);
+  /* ----------------------------------------------------------------------- */
+  /* DEFENCE RESPONSE                                                         */
+  /* ----------------------------------------------------------------------- */
+
+  useEffect(() => {
+    if (!defenceActive) {
+      return;
+    }
+
+    let progress = 0;
+
+    setDefenceProgress(0);
+    setDeflected(false);
+    setMissionStatus(
+      defenceMode ===
+        "kinetic"
+        ? "INTERCEPTOR LAUNCH"
+        : "TRACTOR DEPLOYMENT"
+    );
+
+    const timer = setInterval(() => {
+      progress +=
+        defenceMode ===
+        "kinetic"
+          ? 0.012
+          : 0.006;
+
+      const clamped =
+        Math.min(
+          progress,
+          1
+        );
+
+      setDefenceProgress(
+        clamped
+      );
+
+      if (
+        clamped > 0.22
+      ) {
+        setMissionStatus(
+          "MIDCOURSE TRACKING"
+        );
+      }
+
+      if (
+        clamped > 0.62
+      ) {
+        setMissionStatus(
+          "TERMINAL GUIDANCE"
+        );
+      }
+
+      if (
+        clamped >= 1
+      ) {
+        clearInterval(timer);
+
+        setDeflected(true);
+
+        setMissionStatus(
+          "TRAJECTORY DEFLECTED"
+        );
+
+        setCameraMode(
+          "impact"
+        );
+      }
+    }, 50);
+
+    return () =>
+      clearInterval(timer);
+  }, [
+    defenceActive,
+    defenceMode,
+    defenceTarget,
+  ]);
+
+  function runBaseline() {
+    setDefenceActive(false);
+    setDeflected(false);
+    setMissionStatus(
+      "IMPACT SEQUENCE"
+    );
+
     setPlaying(false);
 
-    requestAnimationFrame(
-      () => {
-        setPlaying(true);
-      }
+    requestAnimationFrame(() => {
+      setPlaying(true);
+    });
+  }
+
+  function launchDefence() {
+    setPlaying(false);
+    setDeflected(false);
+    setDefenceProgress(0);
+
+    setMissionStatus(
+      "DEFENCE RESPONSE"
+    );
+
+    setDefenceActive(true);
+
+    setCameraMode(
+      "corridor"
     );
   }
 
-  function stopSequence() {
+  function resetMission() {
     setPlaying(false);
-    setImpactPulse(false);
-  }
+    setDefenceActive(false);
+    setDefenceProgress(0);
+    setDeflected(false);
 
-  function handleImpact() {
-    setImpactPulse(true);
-    setCameraMode("impact");
+    setMissionStatus(
+      "TRACKING"
+    );
+
+    setCameraMode(
+      "globe"
+    );
   }
 
   return (
     <section className="meteor-3d-panel">
-      <div className="meteor-3d-header">
+
+      {/* HEADER */}
+      <header className="meteor-3d-header">
         <div>
           <p className="meteor-3d-kicker">
-            NASA-STYLE IMPACT VISUALISATION
+            PLANETARY DEFENCE MISSION
           </p>
 
           <h2>
@@ -1407,20 +1878,21 @@ export default function MeteorMadness3D({
           </h2>
 
           <p>
-            Explore the modelled entry
-            corridor, impact site and
-            simulated consequences in
-            three dimensions.
+            Explore the modelled threat,
+            impact corridor and simulated
+            planetary defence response.
           </p>
         </div>
 
         <div className="meteor-3d-status">
           <span className="meteor-3d-status-dot" />
-          LIVE SIMULATION
+          {missionStatus}
         </div>
-      </div>
+      </header>
 
+      {/* 3D WORLD */}
       <div className="meteor-3d-stage">
+
         <Canvas
           camera={{
             position: [
@@ -1439,45 +1911,315 @@ export default function MeteorMadness3D({
         >
           <Suspense fallback={null}>
             <Scene
-              trajectory={
-                trajectory
+              trajectory={trajectory}
+              latitude={latitude}
+              longitude={longitude}
+              playing={playing}
+              speed={speed}
+              cameraMode={cameraMode}
+              spinEarth={spinEarth}
+              defenceActive={
+                defenceActive
               }
-              latitude={
-                latitude
+              defenceProgress={
+                defenceProgress
               }
-              longitude={
-                longitude
-              }
-              surface={
-                surface
-              }
-              craterDiameter={
-                craterDiameter
+              deflected={deflected}
+              defenceTarget={
+                defenceTarget
               }
               impactEnergy={
                 impactEnergy
               }
-              playing={
-                playing
+              onImpact={() =>
+                setMissionStatus(
+                  "IMPACT DETECTED"
+                )
               }
-              speed={
-                speed
-              }
-              cameraMode={
-                cameraMode
-              }
-              spinEarth={
-                spinEarth
-              }
-              onImpact={
-                handleImpact
+              onIntercept={() =>
+                setMissionStatus(
+                  "INTERCEPT CONFIRMED"
+                )
               }
             />
           </Suspense>
         </Canvas>
 
+        {/* TELEMETRY */}
+        <div className="meteor-3d-telemetry">
+          <div className="telemetry-heading">
+            <span>
+              MISSION TELEMETRY
+            </span>
+
+            <b>
+              {missionStatus}
+            </b>
+          </div>
+
+          <div className="telemetry-row">
+            <span>
+              LAT / LON
+            </span>
+
+            <strong>
+              {formatNumber(
+                impact.latitude,
+                3
+              )}
+              ° /
+              {" "}
+              {formatNumber(
+                impact.longitude,
+                3
+              )}
+              °
+            </strong>
+          </div>
+
+          <div className="telemetry-row">
+            <span>
+              SURFACE
+            </span>
+
+            <strong>
+              {String(
+                surface
+              ).toUpperCase()}
+            </strong>
+          </div>
+
+          <div className="telemetry-row">
+            <span>
+              IMPACT ENERGY
+            </span>
+
+            <strong>
+              {formatEnergy(
+                impactEnergy
+              )}
+            </strong>
+          </div>
+
+          <div className="telemetry-row">
+            <span>
+              VELOCITY
+            </span>
+
+            <strong>
+              {impactVelocity != null
+                ? `${formatNumber(
+                    impactVelocity,
+                    1
+                  )} m/s`
+                : "—"}
+            </strong>
+          </div>
+
+          <div className="telemetry-row">
+            <span>
+              CRATER
+            </span>
+
+            <strong>
+              {craterDiameter != null
+                ? `${formatNumber(
+                    craterDiameter / 1000,
+                    2
+                  )} km`
+                : "—"}
+            </strong>
+          </div>
+        </div>
+
+        {/* TARGET LOCK */}
+        <div className="meteor-3d-location">
+          <span className="location-dot" />
+
+          TARGET LOCK&nbsp;
+
+          {formatNumber(
+            impact.latitude,
+            4
+          )}
+          ° /
+
+          {" "}
+
+          {formatNumber(
+            impact.longitude,
+            4
+          )}
+          °
+        </div>
+
+        {/* DEFENCE PANEL */}
+        <div className="meteor-3d-defence">
+
+          <div className="defence-title">
+            <div>
+              <span>
+                PLANETARY DEFENCE
+              </span>
+
+              <strong>
+                RESPONSE SIMULATOR
+              </strong>
+            </div>
+
+            <div
+              className={
+                deflected
+                  ? "defence-safe"
+                  : "defence-warning"
+              }
+            >
+              {deflected
+                ? "DEFLECTED"
+                : "THREAT"}
+            </div>
+          </div>
+
+          {/* STRATEGY */}
+          <div className="defence-strategy">
+            <button
+              type="button"
+              className={
+                defenceMode ===
+                "kinetic"
+                  ? "active"
+                  : ""
+              }
+              onClick={() =>
+                setDefenceMode(
+                  "kinetic"
+                )
+              }
+            >
+              KINETIC
+            </button>
+
+            <button
+              type="button"
+              className={
+                defenceMode ===
+                "tractor"
+                  ? "active"
+                  : ""
+              }
+              onClick={() =>
+                setDefenceMode(
+                  "tractor"
+                )
+              }
+            >
+              GRAVITY TRACTOR
+            </button>
+          </div>
+
+          {/* TARGET */}
+          <div className="defence-target">
+            <span>
+              INTERCEPT POINT
+            </span>
+
+            <select
+              value={
+                defenceTarget
+              }
+              onChange={(event) =>
+                setDefenceTarget(
+                  event.target.value
+                )
+              }
+            >
+              <option value="impact">
+                IMPACT CORRIDOR
+              </option>
+
+              <option value="early">
+                EARLY INTERCEPT
+              </option>
+            </select>
+          </div>
+
+          {/* PROGRESS */}
+          <div className="defence-progress">
+            <div>
+              <span>
+                RESPONSE PROGRESS
+              </span>
+
+              <strong>
+                {Math.round(
+                  defenceProgress *
+                    100
+                )}
+                %
+              </strong>
+            </div>
+
+            <div className="defence-progress-track">
+              <div
+                style={{
+                  width: `${defenceProgress * 100}%`,
+                }}
+              />
+            </div>
+          </div>
+
+          {/* ACTIONS */}
+          <div className="defence-actions">
+            <button
+              type="button"
+              className="defence-launch"
+              onClick={
+                defenceActive
+                  ? resetMission
+                  : launchDefence
+              }
+            >
+              {defenceActive
+                ? "RESET MISSION"
+                : "LAUNCH DEFENCE"}
+            </button>
+
+            <button
+              type="button"
+              onClick={
+                runBaseline
+              }
+            >
+              BASELINE
+            </button>
+          </div>
+        </div>
+
+        {/* SPEED */}
+        <div className="meteor-3d-speed">
+          {[0.5, 1, 2, 4].map(
+            (value) => (
+              <button
+                key={value}
+                type="button"
+                className={
+                  speed === value
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  setSpeed(value)
+                }
+              >
+                ×{value}
+              </button>
+            )
+          )}
+        </div>
+
         {/* COMMAND BAR */}
         <div className="meteor-3d-commandbar">
+
           <div className="meteor-3d-segment">
             <button
               type="button"
@@ -1535,22 +2277,17 @@ export default function MeteorMadness3D({
             type="button"
             className="primary"
             onClick={
-              playing
-                ? stopSequence
-                : runSequence
+              runBaseline
             }
           >
-            {playing
-              ? "■ ABORT"
-              : "▶ RUN IMPACT"}
+            ▶ RUN IMPACT
           </button>
 
           <button
             type="button"
             onClick={() =>
               setSpinEarth(
-                (value) =>
-                  !value
+                (value) => !value
               )
             }
           >
@@ -1560,144 +2297,6 @@ export default function MeteorMadness3D({
           </button>
         </div>
 
-        {/* SPEED */}
-        <div className="meteor-3d-speed">
-          {[0.5, 1, 2, 4].map(
-            (value) => (
-              <button
-                key={value}
-                type="button"
-                className={
-                  speed === value
-                    ? "active"
-                    : ""
-                }
-                onClick={() =>
-                  setSpeed(value)
-                }
-              >
-                ×{value}
-              </button>
-            )
-          )}
-        </div>
-
-        {/* TELEMETRY */}
-        <div className="meteor-3d-telemetry">
-          <div className="telemetry-heading">
-            <span>
-              MISSION TELEMETRY
-            </span>
-
-            <b>
-              {impactPulse
-                ? "IMPACT EVENT"
-                : "TRACKING"}
-            </b>
-          </div>
-
-          <div className="telemetry-row">
-            <span>
-              LAT / LON
-            </span>
-
-            <strong>
-              {formatNumber(
-                impact.latitude,
-                3
-              )}
-              ° /
-              {" "}
-              {formatNumber(
-                impact.longitude,
-                3
-              )}
-              °
-            </strong>
-          </div>
-
-          <div className="telemetry-row">
-            <span>
-              SURFACE
-            </span>
-
-            <strong>
-              {String(
-                surface
-              ).toUpperCase()}
-            </strong>
-          </div>
-
-          <div className="telemetry-row">
-            <span>
-              IMPACT ENERGY
-            </span>
-
-            <strong>
-              {formatEnergy(
-                impactEnergy
-              )}
-            </strong>
-          </div>
-
-          <div className="telemetry-row">
-            <span>
-              VELOCITY
-            </span>
-
-            <strong>
-              {impactVelocity !=
-              null
-                ? `${formatNumber(
-                    impactVelocity,
-                    1
-                  )} m/s`
-                : "—"}
-            </strong>
-          </div>
-
-          <div className="telemetry-row">
-            <span>
-              CRATER
-            </span>
-
-            <strong>
-              {craterDiameter !=
-              null
-                ? `${formatNumber(
-                    craterDiameter /
-                      1000,
-                    2
-                  )} km`
-                : "—"}
-            </strong>
-          </div>
-        </div>
-
-        {/* TARGET LOCK */}
-        <div className="meteor-3d-location">
-          <span className="location-dot" />
-
-          TARGET LOCK
-
-          {"  "}
-
-          {formatNumber(
-            impact.latitude,
-            4
-          )}
-          ° /
-
-          {" "}
-
-          {formatNumber(
-            impact.longitude,
-            4
-          )}
-          °
-        </div>
-
-        {/* HELP */}
         <div className="meteor-3d-help">
           <span>
             DRAG TO ORBIT
@@ -1708,8 +2307,8 @@ export default function MeteorMadness3D({
           </span>
 
           <span>
-            RUN IMPACT FOR
-            CINEMATIC ENTRY
+            DEFENCE RESPONSE IS
+            SIMULATED
           </span>
         </div>
 
