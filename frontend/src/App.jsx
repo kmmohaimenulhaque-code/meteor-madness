@@ -1,3 +1,5 @@
+import MeteorMadness3D from "./components/three/MeteorMadness3D";
+
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import "./analyst.css";
@@ -393,6 +395,17 @@ function App() {
                 consequences={isLand ? landConsequences : null}
               />
             )}
+            {trajectory && (
+  <MeteorMadness3D
+    simulation={simulation}
+    simulationData={simulationData}
+    environment={environment}
+    impactBranch={impactBranch}
+    selectedAsteroid={selectedAsteroid}
+    latitude={latitude}
+    longitude={longitude}
+  />
+)}
           </>
         )}
       </main>
