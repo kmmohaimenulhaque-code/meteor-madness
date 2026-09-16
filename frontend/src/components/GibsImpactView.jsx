@@ -3,11 +3,9 @@ import { useMemo, useState } from "react";
 /**
  * NASA GIBS / Worldview impact-location view.
  *
- * The snapshot is generated from a geographic BBOX around the
- * supplied impact coordinates.
- *
- * The impact marker is positioned using the same BBOX rather
- * than being hard-coded to the centre of the image.
+ * Creates a NASA Worldview snapshot around the supplied
+ * impact coordinates and places the impact marker according
+ * to the same geographic bounding box.
  */
 
 const SNAPSHOT_SPAN = 2.5;
@@ -17,44 +15,34 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function isValidCoordinate(lat, lon) {
+function isValidCoordinate(latitude, longitude) {
   return (
-    Number.isFinite(lat) &&
-    Number.isFinite(lon) &&
-    lat >= -90 &&
-    lat <= 90 &&
-    lon >= -180 &&
-    lon <= 180
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
   );
 }
 
-/**
- * Geographic bounds used by the NASA snapshot.
- */
-function getSnapshotBounds(lat, lon, span = SNAPSHOT_SPAN) {
+function getSnapshotBounds(latitude, longitude) {
   return {
-    south: clamp(lat - span, -90, 90),
-    north: clamp(lat + span, -90, 90),
-    west: clamp(lon - span, -180, 180),
-    east: clamp(lon + span, -180, 180),
+    south: clamp(latitude - SNAPSHOT_SPAN, -90, 90),
+    north: clamp(latitude + SNAPSHOT_SPAN, -90, 90),
+    west: clamp(longitude - SNAPSHOT_SPAN, -180, 180),
+    east: clamp(longitude + SNAPSHOT_SPAN, -180, 180),
   };
 }
 
-/**
- * Convert geographic coordinates to image percentages.
- *
- * Longitude:
- *   west  -> 0%
- *   east  -> 100%
- *
- * Latitude:
- *   north -> 0%
- *   south -> 100%
- *
- * The Y axis is inverted because browser image coordinates
- * increase from top to bottom.
- */
-function getMarkerPosition(lat, lon, bounds) {
+function getMarkerPosition(latitude, longitude, bounds) {
+  if (!bounds) {
+    return {
+      left: 50,
+      top: 50,
+    };
+  }
+
   const { south, north, west, east } = bounds;
 
   const longitudeRange = east - west;
@@ -68,10 +56,10 @@ function getMarkerPosition(lat, lon, bounds) {
   }
 
   const left =
-    ((lon - west) / longitudeRange) * 100;
+    ((longitude - west) / longitudeRange) * 100;
 
   const top =
-    ((north - lat) / latitudeRange) * 100;
+    ((north - latitude) / latitudeRange) * 100;
 
   return {
     left: clamp(left, 0, 100),
@@ -79,46 +67,25 @@ function getMarkerPosition(lat, lon, bounds) {
   };
 }
 
-/**
- * Build the NASA Worldview Snapshot URL.
- */
-function worldviewSnapshotUrl(
-  lat,
-  lon,
-  span = SNAPSHOT_SPAN
-) {
-  const {
-    south,
-    north,
-    west,
-    east,
-  } = getSnapshotBounds(lat, lon, span);
+function buildWorldviewUrl(latitude, longitude) {
+  const bounds = getSnapshotBounds(latitude, longitude);
 
   const params = new URLSearchParams({
     REQUEST: "GetSnapshot",
-
     LAYERS:
       "MODIS_Terra_CorrectedReflectance_TrueColor,Coastlines_15m",
-
     CRS: "EPSG:4326",
-
     TIME: SNAPSHOT_TIME,
-
     WRAP: "DAY",
-
-    /*
-     * Geographic BBOX:
-     * south, west, north, east
-     */
-    BBOX:
-      `${south},${west},${north},${east}`,
-
+    BBOX: [
+      bounds.south,
+      bounds.west,
+      bounds.north,
+      bounds.east,
+    ].join(","),
     FORMAT: "image/jpeg",
-
     WIDTH: "960",
-
     HEIGHT: "640",
-
     AUTOSCALE: "TRUE",
   });
 
@@ -128,24 +95,16 @@ function worldviewSnapshotUrl(
   );
 }
 
-/**
- * Global Blue Marble fallback.
- *
- * NOTE:
- * This is only a fallback image.
- * The precise impact marker is only geographically exact
- * when the primary Worldview snapshot is being displayed.
- */
-function blueMarbleUrl(lat, lon) {
-  const z = 5;
-  const n = 2 ** z;
+function buildBlueMarbleUrl(latitude, longitude) {
+  const zoom = 5;
+  const tileCount = 2 ** zoom;
 
   const x = Math.floor(
-    ((lon + 180) / 360) * n
+    ((longitude + 180) / 360) * tileCount
   );
 
   const y = Math.floor(
-    ((90 - lat) / 180) * n
+    ((90 - latitude) / 180) * tileCount
   );
 
   return (
@@ -153,7 +112,7 @@ function blueMarbleUrl(lat, lon) {
     "epsg4326/best/" +
     "BlueMarble_NextGeneration/" +
     "default/2004-01-01/500m/" +
-    `${z}/${y}/${x}.jpg`
+    `${zoom}/${y}/${x}.jpg`
   );
 }
 
@@ -167,95 +126,35 @@ export default function GibsImpactView({
 
   const [failed, setFailed] = useState(false);
 
-  const validCoordinates = isValidCoordinate(
-    lat,
-    lon
-  );
+  const validCoordinates = isValidCoordinate(lat, lon);
 
-  /**
-   * The exact geographic BBOX used to generate
-   * the primary NASA snapshot.
-   */
   const bounds = useMemo(() => {
     if (!validCoordinates) {
       return null;
     }
 
-    return getSnapshotBounds(
-      lat,
-      lon,
-      SNAPSHOT_SPAN
-    );
-  }, [
-    lat,
-    lon,
-    validCoordinates,
-  ]);
+    return getSnapshotBounds(lat, lon);
+  }, [lat, lon, validCoordinates]);
 
-  /**
-   * Primary NASA Worldview snapshot.
-   */
-  const primary = useMemo(() => {
+  const primaryUrl = useMemo(() => {
     if (!validCoordinates) {
       return null;
     }
 
-    return worldviewSnapshotUrl(
-      lat,
-      lon,
-      SNAPSHOT_SPAN
-    );
-  }, [
-    lat,
-    lon,
-    validCoordinates,
-  ]);
+    return buildWorldviewUrl(lat, lon);
+  }, [lat, lon, validCoordinates]);
 
-  /**
-   * Fallback NASA Blue Marble tile.
-   */
-  const fallback = useMemo(() => {
+  const fallbackUrl = useMemo(() => {
     if (!validCoordinates) {
       return null;
     }
 
-    return blueMarbleUrl(
-      lat,
-      lon
-    );
-  }, [
-    lat,
-    lon,
-    validCoordinates,
-  ]);
+    return buildBlueMarbleUrl(lat, lon);
+  }, [lat, lon, validCoordinates]);
 
-  /**
-   * Calculate the exact position of the impact
-   * coordinate inside the snapshot image.
-   */
   const markerPosition = useMemo(() => {
-    if (!bounds || !validCoordinates) {
-      return {
-        left: 50,
-        top: 50,
-      };
-    }
-
-    return getMarkerPosition(
-      lat,
-      lon,
-      bounds
-    );
-  }, [
-    lat,
-    lon,
-    bounds,
-    validCoordinates,
-  ]);
-
-  const src = failed
-    ? fallback
-    : primary;
+    return getMarkerPosition(lat, lon, bounds);
+  }, [lat, lon, bounds]);
 
   if (!validCoordinates) {
     return (
@@ -267,21 +166,20 @@ export default function GibsImpactView({
     );
   }
 
+  const imageUrl = failed ? fallbackUrl : primaryUrl;
+
   return (
     <div className="story-gibs-live">
-      {src ? (
+      {imageUrl ? (
         <img
-          key={src}
-          src={src}
-          alt={
-            `NASA GIBS satellite view near ` +
-            `${lat.toFixed(4)}, ${lon.toFixed(4)}`
-          }
+          key={imageUrl}
+          src={imageUrl}
+          alt={`NASA GIBS satellite view near ${lat.toFixed(
+            4
+          )}, ${lon.toFixed(4)}`}
           className="story-gibs-img"
           onError={() => {
-            if (!failed) {
-              setFailed(true);
-            }
+            setFailed(true);
           }}
         />
       ) : (
@@ -290,32 +188,24 @@ export default function GibsImpactView({
         </div>
       )}
 
-      {/*
-       * Coordinate-aware impact marker.
-       *
-       * IMPORTANT:
-       * This is deliberately NOT centred.
-       */
-      {!failed && (
+      {!failed ? (
         <div
           className="story-impact-pin"
           style={{
             left: `${markerPosition.left}%`,
             top: `${markerPosition.top}%`,
           }}
-          aria-label={
-            `Impact location ` +
-            `${lat.toFixed(4)}, ${lon.toFixed(4)}`
-          }
+          aria-label={`Impact location ${lat.toFixed(
+            4
+          )}, ${lon.toFixed(4)}`}
         >
           <span />
         </div>
-      )}
+      ) : null}
 
       <div className="story-gibs-label">
         NASA GIBS / Worldview ·{" "}
-        {lat.toFixed(4)}°,{" "}
-        {lon.toFixed(4)}° ·{" "}
+        {lat.toFixed(4)}°, {lon.toFixed(4)}° ·{" "}
         {String(surface ?? "UNKNOWN")}
       </div>
     </div>
