@@ -8,10 +8,11 @@ import httpx
 
 def reverse_geocode(latitude: float, longitude: float) -> dict[str, Any]:
     """
-    Best-effort place recognition.
+    Best-effort place recognition in English.
 
-    Uses Nominatim with a proper User-Agent. On failure returns unavailable
-    without inventing a location.
+    Uses Nominatim with accept-language=en so city/region/country labels
+    are returned in English rather than the local language.
+    On failure returns unavailable without inventing a location.
     """
     try:
         with httpx.Client(timeout=10.0) as client:
@@ -23,9 +24,12 @@ def reverse_geocode(latitude: float, longitude: float) -> dict[str, Any]:
                     "format": "json",
                     "zoom": 8,
                     "addressdetails": 1,
+                    # Prefer English names (e.g. "Rajshahi, Bangladesh" not local script)
+                    "accept-language": "en",
                 },
                 headers={
-                    "User-Agent": "MeteorMadness-SpaceApps/1.0 (educational demo)"
+                    "User-Agent": "MeteorMadness-SpaceApps/1.0 (educational demo)",
+                    "Accept-Language": "en",
                 },
             )
             response.raise_for_status()
@@ -34,11 +38,16 @@ def reverse_geocode(latitude: float, longitude: float) -> dict[str, Any]:
         return {
             "status": "unavailable",
             "display_name": None,
+            "language": "en",
             "error": type(exc).__name__,
         }
 
     if not isinstance(data, dict):
-        return {"status": "unavailable", "display_name": None}
+        return {
+            "status": "unavailable",
+            "display_name": None,
+            "language": "en",
+        }
 
     address = data.get("address") or {}
     parts = [
@@ -61,4 +70,5 @@ def reverse_geocode(latitude: float, longitude: float) -> dict[str, Any]:
         or address.get("town")
         or address.get("village"),
         "source": "nominatim",
+        "language": "en",
     }
