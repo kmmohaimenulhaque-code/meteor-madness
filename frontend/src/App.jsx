@@ -388,25 +388,15 @@ function App() {
               tsunami={tsunami}
               hasSimulation={Boolean(simulation)}
             />
-{trajectory && (
+
+            {trajectory && (
   <EarthImpactMap
     trajectory={trajectory}
     consequences={isLand ? landConsequences : null}
   />
 )}
 
-{trajectory && (
-  <GoogleImpactMap
-    trajectory={trajectory}
-    consequences={isLand ? landConsequences : null}
-    environment={environment}
-    simulation={simulation}
-    impactBranch={impactBranch}
-    selectedAsteroid={selectedAsteroid}
-    latitude={latitude}
-    longitude={longitude}
-  />
-)}
+
 
 {trajectory && (
   <MeteorMadness3D
