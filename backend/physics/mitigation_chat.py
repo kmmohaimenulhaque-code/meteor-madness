@@ -11,6 +11,14 @@ import json
 import os
 import re
 from typing import Any, Literal
+from ai_tools import (
+    get_simulation_summary,
+    get_impact_data,
+    get_environment_data,
+    get_consequences_data,
+    get_planetary_defence_context,
+)
+
 
 from physics.calc_explainers import EXPLAINERS, format_explainer, match_explainer
 from physics.gemini_client import (
@@ -41,7 +49,34 @@ Tone = Literal[
     "playful",
     "default",
 ]
+def run_ai_tool(
+    tool_name: str,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Controlled tool dispatcher.
 
+    The LLM can request only tools explicitly exposed here.
+    """
+
+    tools = {
+        "get_simulation_summary": get_simulation_summary,
+        "get_impact_data": get_impact_data,
+        "get_environment_data": get_environment_data,
+        "get_consequences_data": get_consequences_data,
+    }
+
+    if tool_name == "get_planetary_defence_context":
+        return get_planetary_defence_context()
+
+    tool = tools.get(tool_name)
+
+    if tool is None:
+        return {
+            "error": f"Unknown AI tool: {tool_name}"
+        }
+
+    return tool(context)
 
 def detect_tone(message: str) -> Tone:
     lower = (message or "").lower()
