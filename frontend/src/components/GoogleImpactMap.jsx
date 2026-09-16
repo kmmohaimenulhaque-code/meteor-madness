@@ -14,16 +14,19 @@ let googleMapsPromise = null;
  * GOOGLE MAPS LOADER
  * ---------------------------------------------------------
  *
- * We deliberately load the Maps JavaScript API with the
- * required "marker" library up front.
+ * Uses Google's direct script loader with a callback.
  *
- * This avoids relying on:
+ * IMPORTANT:
+ * loading=async means the script's load event does NOT
+ * guarantee that the Maps API is ready for use.
  *
- *   window.google.maps.importLibrary()
+ * We therefore wait for Google's callback instead.
  *
- * because the current deployment was exposing a Maps
- * object without that method.
+ * The marker library is requested explicitly so that
+ * AdvancedMarkerElement is available.
+ * ---------------------------------------------------------
  */
+
 function loadGoogleMaps() {
   if (
     window.google?.maps?.Map &&
@@ -43,16 +46,50 @@ function loadGoogleMaps() {
   }
 
   googleMapsPromise = new Promise((resolve, reject) => {
+    const callbackName =
+      "__meteorMadnessGoogleMapsReady";
+
     const existingScript = document.querySelector(
       'script[data-meteor-madness-google-maps="true"]'
     );
 
     /*
-     * Another component/script may already be loading Google
-     * Maps. Wait for it instead of inserting another script.
+     * If another copy of the loader already exists,
+     * wait for Google's global callback.
      */
     if (existingScript) {
-      const handleLoad = () => {
+      const previousCallback =
+        window[callbackName];
+
+      window[callbackName] = () => {
+        try {
+          if (
+            window.google?.maps?.Map &&
+            window.google?.maps?.marker?.AdvancedMarkerElement
+          ) {
+            resolve(window.google.maps);
+            return;
+          }
+
+          reject(
+            new Error(
+              "Google Maps loaded, but the Marker library is unavailable"
+            )
+          );
+        } finally {
+          if (typeof previousCallback === "function") {
+            previousCallback();
+          }
+
+          delete window[callbackName];
+        }
+      };
+
+      return;
+    }
+
+    window[callbackName] = () => {
+      try {
         if (
           window.google?.maps?.Map &&
           window.google?.maps?.marker?.AdvancedMarkerElement
@@ -61,42 +98,27 @@ function loadGoogleMaps() {
         } else {
           reject(
             new Error(
-              "Google Maps loaded, but the required Marker library is unavailable"
+              "Google Maps loaded, but the Marker library is unavailable"
             )
           );
         }
-      };
+      } finally {
+        delete window[callbackName];
+      }
+    };
 
-      const handleError = () => {
-        reject(
-          new Error("Google Maps failed to load")
-        );
-      };
+    const script =
+      document.createElement("script");
 
-      existingScript.addEventListener(
-        "load",
-        handleLoad,
-        { once: true }
-      );
-
-      existingScript.addEventListener(
-        "error",
-        handleError,
-        { once: true }
-      );
-
-      return;
-    }
-
-    const script = document.createElement("script");
-
-    const params = new URLSearchParams({
-      key: GOOGLE_MAPS_API_KEY,
-      v: "weekly",
-      loading: "async",
-      libraries: "marker",
-      auth_referrer_policy: "origin",
-    });
+    const params =
+      new URLSearchParams({
+        key: GOOGLE_MAPS_API_KEY,
+        v: "weekly",
+        loading: "async",
+        libraries: "marker",
+        callback: callbackName,
+        auth_referrer_policy: "origin",
+      });
 
     script.src =
       `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
@@ -104,24 +126,12 @@ function loadGoogleMaps() {
     script.async = true;
     script.defer = true;
 
-    script.dataset.meteorMadnessGoogleMaps = "true";
-
-    script.onload = () => {
-      if (
-        window.google?.maps?.Map &&
-        window.google?.maps?.marker?.AdvancedMarkerElement
-      ) {
-        resolve(window.google.maps);
-      } else {
-        reject(
-          new Error(
-            "Google Maps loaded, but the required Marker library is unavailable"
-          )
-        );
-      }
-    };
+    script.dataset.meteorMadnessGoogleMaps =
+      "true";
 
     script.onerror = () => {
+      delete window[callbackName];
+
       reject(
         new Error(
           "Google Maps API could not be loaded"
@@ -785,9 +795,6 @@ export default function GoogleImpactMap({
           radius:
             radii.thermal,
 
-          name:
-            "Thermal radiation",
-
           opacity:
             0.18,
         },
@@ -796,9 +803,6 @@ export default function GoogleImpactMap({
           radius:
             radii.blast,
 
-          name:
-            "Blast zone",
-
           opacity:
             0.16,
         },
@@ -806,9 +810,6 @@ export default function GoogleImpactMap({
         {
           radius:
             radii.seismic,
-
-          name:
-            "Seismic zone",
 
           opacity:
             0.12,
