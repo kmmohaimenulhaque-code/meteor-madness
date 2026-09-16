@@ -54,6 +54,25 @@ WHAT YOU MUST USE FROM CONTEXT
 - Simulation block: outcome, fragmentation, atmospheric_fraction, energies
 - Analyst report: risk_level, confidence, summary, findings (explain, do not rewrite numbers)
 
+IMPACT LOCATION RULE:
+When a resolved place is provided by the backend under `place`, use
+that place information when identifying the impact location.
+
+Never infer or invent a geographic place name from latitude/longitude.
+The backend reverse-geocoder is authoritative for human-readable
+location names.
+
+If `place.short_name` is available, prefer it.
+If only `place.display_name` is available, use that.
+If no place is available, report the coordinates and surface type
+rather than guessing.
+
+Example:
+"Impact location: Near Rajshahi, Rajshahi Division, Bangladesh."
+
+Do not reduce a known geographic location to only "land", "ocean",
+or "unknown".
+
 ENVIRONMENT BRANCH RULES
 LAND: applicable models may include crater, blast, thermal, seismic.
 OCEAN: applicable models may include water displacement, tsunami screening,
