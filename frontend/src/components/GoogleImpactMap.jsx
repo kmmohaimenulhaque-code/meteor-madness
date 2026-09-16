@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./GoogleImpactMap.css";
 
-const VITE_GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-const VITE_GOOGLE_MAP_ID =
-  import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID";
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+const GOOGLE_MAP_ID = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID";
 
 let googleMapsPromise = null;
 
