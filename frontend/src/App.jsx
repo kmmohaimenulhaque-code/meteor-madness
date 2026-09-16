@@ -1,5 +1,5 @@
 import MeteorMadness3D from "./components/three/MeteorMadness3D";
-
+import GoogleImpactMap from "./components/GoogleImpactMap";
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import "./analyst.css";
