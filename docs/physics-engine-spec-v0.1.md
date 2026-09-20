@@ -139,7 +139,7 @@ initial_altitude_m
 Assume an equivalent sphere for the object's volume.
 
 Initial radius:
-
+```
 [
 r_0 = \frac{D}{2}
 ]
@@ -162,9 +162,9 @@ Therefore:
 m =
 \rho_m\frac{4}{3}\pi r_{eq}^3
 ]
-
+```
 During ablation, density is held constant in V0.1 and equivalent radius is recalculated from remaining mass:
-
+```
 [
 \boxed{
 r_{eq} =
@@ -173,7 +173,7 @@ r_{eq} =
 \right)^{1/3}
 }
 ]
-
+```
 ---
 
 # 6. Shape / Projected Area Model
@@ -181,25 +181,25 @@ r_{eq} =
 Version 0.1 does not assume that every asteroid is perfectly spherical.
 
 Instead, projected area is represented by an explicit shape factor:
-
+```
 [
 \boxed{
 A = C_A\pi r_{eq}^2
 }
 ]
-
+```
 where:
-
+```
 * (A) = projected aerodynamic area
 * (C_A) = shape/orientation factor
 * (r_{eq}) = equivalent-sphere radius
-
+```
 For a perfect sphere:
-
+```
 [
 C_A = 1
 ]
-
+```
 This architecture allows future versions to replace the constant (C_A) with a function of:
 
 * aspect ratio
@@ -216,11 +216,11 @@ without rewriting the rest of the physics engine.
 Atmospheric density must vary with altitude.
 
 The engine must **not use a single constant atmospheric density**.
-
+```
 [
 \rho_a = \rho_a(h)
 ]
-
+```
 The atmosphere implementation shall use a recognised standard-atmosphere model rather than an arbitrary exponential approximation.
 
 The implementation should be isolated behind an interface:
@@ -246,7 +246,7 @@ if available from the selected atmosphere model.
 # 8. Gravity Model
 
 Use altitude-dependent gravitational acceleration:
-
+```
 [
 \boxed{
 g(h)=g_0
@@ -255,13 +255,13 @@ g(h)=g_0
 \right)^2
 }
 ]
-
+```
 where:
-
+``` text
 * (g_0) = standard gravitational acceleration at Earth's surface
 * (R_E) = Earth radius
 * (h) = altitude
-
+```
 This avoids treating gravity as perfectly constant throughout the simulation.
 
 ---
@@ -269,7 +269,7 @@ This avoids treating gravity as perfectly constant throughout the simulation.
 # 9. State Vector
 
 Version 0.1 uses:
-
+```
 [
 \boxed{
 y =
@@ -280,7 +280,7 @@ m
 \end{bmatrix}
 }
 ]
-
+```
 where:
 
 * (h) = altitude
@@ -316,59 +316,59 @@ The engine must not silently extrapolate atmospheric density outside the model's
 # 11. Aerodynamic Drag
 
 Aerodynamic drag force:
-
+```text
 [
 \boxed{
 F_D =
 \frac12 C_D\rho_a v^2 A
 }
 ]
-
+```
 where:
-
+```
 * (C_D) = drag coefficient
 * (\rho_a) = atmospheric density
 * (v) = velocity
 * (A) = projected area
-
+```
 Drag acceleration:
-
+```
 [
 \boxed{
 a_D =
 \frac{F_D}{m}
 }
 ]
-
+```
 The drag coefficient is an explicit model parameter.
 
 Version 0.1 treats it as constant.
 
 Future versions may implement:
-
+```
 [
 C_D =
 f(M,Re,\text{shape},\text{flow regime})
 ]
-
+```
 ---
 
 # 12. Simplified Trajectory Equations
 
 For V0.1:
-
+```
 -v\sin\gamma
 }
 ]
-
+```
 Velocity evolution:
 
 ## -g(h)\sin\gamma
-
+```
 \frac{F_D}{m}
 }
 ]
-
+```
 The constant-angle assumption is a deliberate simplification.
 
 It means V0.1 is **not a full orbital/ballistic trajectory solver**.
@@ -380,14 +380,14 @@ Future versions should implement dynamic flight-path angle and Earth curvature.
 # 13. Atmospheric Heating
 
 Effective aerodynamic heating rate:
-
+```
 [
 \boxed{
 \dot Q =
 \frac12 C_H\rho_a v^3 A
 }
 ]
-
+```
 where:
 
 * (C_H) = effective heat-transfer coefficient.
@@ -401,13 +401,13 @@ It must not be silently assumed to have a universal value.
 # 14. Effective Ablation Model
 
 Version 0.1 uses an effective heat-of-ablation model:
-
+```
 -\frac{\dot Q}{Q_*}
 }
 ]
-
+```
 Therefore:
-
+```
 -\frac{
 C_H\rho_a v^3 A
 }{
@@ -415,13 +415,14 @@ C_H\rho_a v^3 A
 }
 }
 ]
-
+```
 where:
-
+```
 [
 Q_* =
 \text{effective heat of ablation}
 ]
+```
 
 This is an engineering approximation.
 
@@ -441,14 +442,14 @@ Future versions may replace this with a more sophisticated ablation model.
 # 15. Dynamic Pressure
 
 Dynamic pressure is:
-
+```
 [
 \boxed{
 q =
 \frac12\rho_a v^2
 }
 ]
-
+```
 It is recorded throughout the simulation.
 
 Dynamic pressure is useful for identifying potentially important fragmentation conditions.
@@ -458,13 +459,13 @@ Dynamic pressure is useful for identifying potentially important fragmentation c
 # 16. Fragmentation Criterion
 
 Version 0.1 uses:
-
+```
 [
 \boxed{
 q > S
 }
 ]
-
+```
 as a simplified fragmentation trigger.
 
 where:
